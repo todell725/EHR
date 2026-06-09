@@ -14,6 +14,7 @@ import random
 from backend.core import state
 
 GOAL_TIERS = ["survival", "consolidation", "expansion", "dominance"]
+RES_MIN, RES_MAX = 0, 40   # resources are bounded so drift can't compound to runaway dominance
 
 # Candidate moves per tier; one is chosen each tick (gated by resources).
 _MOVES = {
@@ -42,9 +43,15 @@ def tick() -> list[dict]:
     for f in state.list_factions():
         tier = _maybe_advance_tier(f)
         move = random.choice(_MOVES.get(tier, _MOVES["survival"]))
-        # resource drift: action costs a little, momentum compounds
-        delta = random.randint(-2, 4)
-        new_res = max(0, f.get("resources", 10) + delta)
+        # resource drift, zero-mean with mild reversion off the rails so factions don't all
+        # balloon to dominance (rich → action costs bite) or death-spiral to 0 (poor → claw back)
+        res = f.get("resources", 10)
+        delta = random.randint(-3, 3)
+        if res > 30:
+            delta -= 1
+        elif res < 8:
+            delta += 1
+        new_res = max(RES_MIN, min(RES_MAX, res + delta))
         state.upsert_faction({"id": f["id"], "goal_tier": tier, "resources": new_res})
 
         text = f"{f['name']} {move}."

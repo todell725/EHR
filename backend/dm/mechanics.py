@@ -338,10 +338,17 @@ def _dispatch(tag, args, pcs, acting, applied, rolls, result):  # noqa: C901 - f
     elif tag == "CONDITION_ADD" and len(args) >= 2:
         pc = _find_pc(args[0], pcs)
         if pc:
-            rounds = _coerce_int(args[2], None) if len(args) > 2 else None
-            conds = pc["conditions"] + [{"name": args[1], "rounds": rounds}]
+            # the condition name may itself contain commas ("poisoned, weakened"); only a
+            # *trailing pure-number* token is the duration in rounds (same rule as items).
+            parts = [a.strip() for a in args[1:] if a.strip()]
+            rounds = None
+            if len(parts) > 1 and parts[-1].lstrip("+-").isdigit():
+                rounds = int(parts[-1])
+                parts = parts[:-1]
+            name = ", ".join(parts)
+            conds = pc["conditions"] + [{"name": name, "rounds": rounds}]
             state.upsert_pc({"id": pc["id"], "conditions": conds})
-            applied.append(f"{pc['name']} gains {args[1]}")
+            applied.append(f"{pc['name']} gains {name}")
 
     elif tag == "CONDITION_REMOVE" and len(args) >= 2:
         pc = _find_pc(args[0], pcs)

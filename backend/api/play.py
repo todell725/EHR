@@ -106,13 +106,32 @@ class InjectBeat(BaseModel):
     narrative: str
     suggestions: list[dict] = []
     applied: list[str] = []
+    mechanics: list[str] = []   # optional `TAG: args` lines applied through the trust boundary
+
+
+def apply_inject_mechanics(raw_lines: list[str]) -> list[str]:
+    """Apply an authored beat's state changes through the SAME `apply_mechanics` boundary
+    a model turn uses — so injected prose and the game ledger can't fall out of sync, and
+    a typo'd tag is rejected/noted (and surfaced) rather than silently wrong."""
+    from backend.dm import mechanics, parser
+
+    mechs, _ = parser._parse_mechanics("\n".join(raw_lines))
+    res = mechanics.apply_mechanics(mechs)
+    display = list(res["applied"])
+    display += [f"⚠ rejected: {r}" for r in res["rejected"]]
+    display += [f"note: {n}" for n in res["notes"]]
+    return display
 
 
 @router.post("/play/inject")
 async def play_inject(body: InjectBeat) -> dict:
-    """Push a hand-authored DM beat (e.g. a montage) straight into the live feed.
-    Display only — it does not run the model or apply mechanics."""
-    seq = await broker.inject(body.narrative, body.suggestions, body.applied)
+    """Push a hand-authored DM beat (e.g. a montage) into the live feed. If `mechanics`
+    are supplied they're applied through the deterministic boundary (no split-brain); the
+    resulting real changes lead the `applied` display, with any free-text notes appended."""
+    applied = list(body.applied)
+    if body.mechanics:
+        applied = apply_inject_mechanics(body.mechanics) + applied
+    seq = await broker.inject(body.narrative, body.suggestions, applied)
     return {"ok": True, "seq": seq}
 
 

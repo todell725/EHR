@@ -123,12 +123,19 @@ def tick(now: float | None = None) -> dict | None:
                 gained[k] = q
         _save_materials(mats)
 
+    leveled = None
     if hero:
-        state.grant_skill_xp(hero["id"], spec["skill"], spec["xp"] * cycles)
+        r = state.grant_skill_xp(hero["id"], spec["skill"], spec["xp"] * cycles)
+        if r and r.get("leveled"):
+            # skill levels auto-apply (no GM queue); surface them so idle progress is felt,
+            # not silent — one beat per level crossed (naturally deduped: leveled is one-shot)
+            leveled = {"skill": r["skill"], "level": r["level"]}
+            state.add_chronicle(f"{hero['name']}'s {r['skill']} reached level {r['level']}.",
+                                tags=["idle", "skill", "level-up"], significant=False)
 
     s["last_tick"] = last + cycles * spec["seconds"]  # carry leftover sub-cycle time
     _save_idle(s)
-    return {"cycles": cycles, "gained": gained}
+    return {"cycles": cycles, "gained": gained, "leveled": leveled}
 
 
 # ------------------------------------------------------------------- public api
