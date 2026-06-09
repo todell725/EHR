@@ -1,0 +1,187 @@
+"""Play loop endpoints — the live DM interaction surface.
+
+`/api/play/ws` streams a turn token-by-token (the UI shows live narration, then
+snaps to the parsed sections on the final `result` event). `/api/play/action` is the
+buffered fallback. Session endpoints handle the "Previously on" recap + faction tick.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+
+from backend.core import backups
+from backend.core.config import settings
+from backend.core.models import PlayAction
+from backend.dm import orchestrator
+from backend.dm.broker import broker, last_persisted
+from backend.sim import factions
+
+router = APIRouter(prefix="/api", tags=["play"])
+logger = logging.getLogger("emberheart.api.play")
+
+_warm_tasks: set = set()
+
+
+def _fire_warm(model: str | None) -> None:
+    """Warm a model in the background so its cold start happens before play, not during."""
+    task = asyncio.create_task(orchestrator.warm_model(model))
+    _warm_tasks.add(task)
+    task.add_done_callback(_warm_tasks.discard)
+
+
+@router.websocket("/play/ws")
+async def play_ws(ws: WebSocket) -> None:
+    # The HTTP password middleware doesn't cover WebSockets — gate here via ?pw=.
+    if settings.app_password and ws.query_params.get("pw") != settings.app_password:
+        await ws.close(code=1008)
+        return
+    await ws.accept()
+    q = broker.subscribe()
+
+    # Catch-up: replay recent finished beats (deduped client-side by seq) so a (re)connecting
+    # or freshly-loaded client gets everything it missed — not just the single last turn.
+    async def _replay(turn: dict) -> None:
+        await ws.send_json({"type": "replay_start", "seq": turn["seq"],
+                            "action": turn["action"], "status": turn["status"]})
+        for ev in turn["events"]:
+            await ws.send_json(ev)
+        if turn["status"] == "done":
+            await ws.send_json({"type": "turn_done", "seq": turn["seq"]})
+
+    replayed = set()
+    for turn in list(broker.recent):
+        await _replay(turn)
+        replayed.add(turn["seq"])
+    cur = broker.snapshot()
+    if cur and cur["seq"] not in replayed:   # an in-flight (running) turn not yet in recent
+        await _replay(cur)
+
+    async def sender() -> None:
+        while True:
+            await ws.send_json(await q.get())
+
+    send_task = asyncio.create_task(sender())
+    try:
+        while True:
+            data = await ws.receive_json()
+            action = (data or {}).get("action", "").strip()
+            pc_id = (data or {}).get("pc_id")
+            if not action:
+                await ws.send_json({"type": "error", "message": "empty action"})
+                continue
+            started = await broker.submit(action, pc_id)
+            if not started:
+                await ws.send_json({"type": "notice", "message": "A turn is already underway."})
+    except WebSocketDisconnect:
+        pass
+    except Exception:  # noqa: BLE001
+        logger.exception("play_ws error")
+    finally:
+        send_task.cancel()
+        broker.unsubscribe(q)
+
+
+@router.get("/play/state")
+def play_state() -> dict:
+    """REST recovery: the in-flight turn (if any) + the last persisted result."""
+    cur = broker.snapshot()
+    return {
+        "current": ({"seq": cur["seq"], "status": cur["status"], "action": cur["action"]}
+                    if cur else None),
+        "last": last_persisted(),
+    }
+
+
+@router.post("/play/action")
+async def play_action(body: PlayAction) -> dict:
+    return await orchestrator.take_turn(body.text, body.pc_id)
+
+
+class InjectBeat(BaseModel):
+    narrative: str
+    suggestions: list[dict] = []
+    applied: list[str] = []
+
+
+@router.post("/play/inject")
+async def play_inject(body: InjectBeat) -> dict:
+    """Push a hand-authored DM beat (e.g. a montage) straight into the live feed.
+    Display only — it does not run the model or apply mechanics."""
+    seq = await broker.inject(body.narrative, body.suggestions, body.applied)
+    return {"ok": True, "seq": seq}
+
+
+@router.post("/session/start")
+async def session_start() -> dict:
+    """Begin a session: warm the model, auto-backup, faction tick, then recap."""
+    orchestrator.ensure_session()
+    # warm the narration (and intimate) model up front so the first turn isn't cold
+    _fire_warm(settings.narration_model)
+    if settings.route_intimate and settings.intimate_model:
+        _fire_warm(settings.intimate_model)
+    try:
+        backups.backup("session-start")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("session backup failed: %s", exc)
+    moves = factions.tick()
+    return {
+        "previously": orchestrator.previously_on(),
+        "faction_moves": moves,
+        "warming": settings.narration_model,
+    }
+
+
+@router.post("/warmup")
+async def warmup() -> dict:
+    """Explicitly preload the narration model (UI can call this on page load)."""
+    ok = await orchestrator.warm_model(settings.narration_model)
+    if settings.route_intimate and settings.intimate_model:
+        _fire_warm(settings.intimate_model)
+    return {"model": settings.narration_model, "ok": ok}
+
+
+@router.post("/session/end")
+async def session_end() -> dict:
+    """Close the session: generate a summary, flag open threads, back up."""
+    summary = await orchestrator.end_session()
+    try:
+        backups.backup("session-end")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("session backup failed: %s", exc)
+    return summary
+
+
+@router.post("/session/undo")
+def session_undo() -> dict:
+    """Roll back to before the last turn (consumes one undo step)."""
+    result = backups.undo()
+    if result is None:
+        return {"ok": False, "detail": "nothing to undo"}
+    orchestrator.clear_recent()
+    return {"ok": True, **result}
+
+
+class BackupLabel(BaseModel):
+    label: str = "manual"
+
+
+@router.post("/session/backup")
+def session_backup(body: BackupLabel) -> dict:
+    path = backups.backup(body.label)
+    return {"ok": True, "file": path.name}
+
+
+@router.get("/session/backups")
+def session_backups() -> dict:
+    return backups.list_all()
+
+
+@router.get("/session/export")
+def session_export() -> FileResponse:
+    path = backups.export_copy()
+    return FileResponse(path, media_type="application/octet-stream", filename=path.name)

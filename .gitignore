@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Env / secrets
+.env
+
+# Runtime data — the live campaign DB lives on the server/Mac, never in git
+# (whole dir: the DB plus its backups/ and snapshots/)
+/data/
+/logs/
+
+# OS
+.DS_Store
+
+# Gallery images live on the server, not in git (captions.json + README are kept)
+/frontend/gallery/*.png
+/frontend/gallery/*.jpg
+/frontend/gallery/*.jpeg
+/frontend/gallery/*.webp
+/frontend/gallery/*.gif
+/frontend/gallery/*.avif

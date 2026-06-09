@@ -1,0 +1,19 @@
+services:
+  emberheart-reborn:
+    build: .
+    container_name: emberheart-reborn
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      # Talk to the host's Ollama from inside the container (Unraid / Docker Desktop).
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
+      - DB_PATH=/data/emberheart.db
+    volumes:
+      - ./data:/data
+      # Optional: mount the corpus read-only to run in-container ingestion.
+      # - /mnt/user/media/Dnd/Claudes-EmberHeart:/corpus/claudes:ro
+      # - /mnt/user/appdata/emberheart-origins:/corpus/origins:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
