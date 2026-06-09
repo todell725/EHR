@@ -993,7 +993,10 @@ function KingdomPane({ world, reload }) {
   };
 
   const commitLabor = async () => {
+    // send the FULL ledger (current values + slider edits) — a draft-only body would
+    // make untouched categories vanish server-side
     const body = {};
+    Object.keys(labor).forEach((k) => { body[k] = parseInt(labor[k], 10) || 0; });
     Object.keys(laborDraft).forEach((k) => { body[k] = parseInt(laborDraft[k], 10) || 0; });
     await post("/api/world/labor", { labor: body });
     setAutoMsg("");

@@ -39,6 +39,7 @@ def set_enabled(on: bool) -> None:
     )
 
 
+@kingdom.domain_locked
 def tick() -> dict | None:
     """Advance the domain economy one step. Returns a delta summary (or None)."""
     domain = kingdom.get_domain()

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
@@ -99,7 +100,22 @@ def play_state() -> dict:
 
 @router.post("/play/action")
 async def play_action(body: PlayAction) -> dict:
-    return await orchestrator.take_turn(body.text, body.pc_id)
+    """Buffered fallback: run the turn through the BROKER and wait for the result.
+    Calling the orchestrator directly here used to skip the one-turn-at-a-time guard,
+    the replay buffer, and feed persistence — a second caller could mutate the world
+    mid-turn and the beat vanished from reconnecting clients."""
+    started = await broker.submit(body.text, body.pc_id)
+    if not started:
+        return {"ok": False, "detail": "a turn is already underway"}
+    turn = broker.current
+    deadline = asyncio.get_event_loop().time() + broker.overall_timeout + 60
+    while turn["status"] == "running" and asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(0.25)
+    result = next((e for e in turn["events"] if e["type"] == "result"), None)
+    if result is None:
+        error = next((e for e in turn["events"] if e["type"] == "error"), None)
+        return {"ok": False, "detail": (error or {}).get("message", "turn failed")}
+    return result
 
 
 @router.post("/play/submit")
@@ -127,6 +143,22 @@ def apply_inject_mechanics(raw_lines: list[str]) -> list[str]:
     mechs, _ = parser._parse_mechanics("\n".join(raw_lines))
     res = mechanics.apply_mechanics(mechs)
     display = list(res["applied"])
+    # Post-turn side effects a real turn gets from the orchestrator, for the subset that
+    # makes sense in an authored beat: the calendar actually moves and dice carry into
+    # the next turn. Combat can't be driven from an inject — say so instead of claiming
+    # it happened. (Chronicle/RAG and project ticks stay live-play-only by design.)
+    if res.get("time_advance"):
+        try:
+            from backend.sim import calendar
+
+            amount, unit = res["time_advance"]
+            calendar.advance(amount, unit)
+        except Exception as exc:  # noqa: BLE001
+            display.append(f"⚠ time advance failed: {exc}")
+    if res.get("combat_start") or res.get("combat_end"):
+        display.append("note: combat tags do nothing in an injected beat — run fights in live play")
+    if res.get("rolls"):
+        orchestrator._save_pending(res["rolls"])
     display += [f"⚠ rejected: {r}" for r in res["rejected"]]
     display += [f"note: {n}" for n in res["notes"]]
     return display
@@ -187,10 +219,17 @@ async def session_end() -> dict:
 @router.post("/session/undo")
 def session_undo() -> dict:
     """Roll back to before the last turn (consumes one undo step)."""
+    cur = broker.snapshot()
+    if (cur and cur["status"] == "running"
+            and time.time() - cur.get("started_at", 0) < broker.overall_timeout + 30):
+        return {"ok": False, "detail": "a turn is still running — wait for it to finish"}
     result = backups.undo()
     if result is None:
         return {"ok": False, "detail": "nothing to undo"}
     orchestrator.clear_recent()
+    # The DB rolled back, so the broker's in-memory feed must too — otherwise the undone
+    # beat replays on the next reconnect and gets re-persisted by the next turn.
+    broker.restore_feed()
     return {"ok": True, **result}
 
 

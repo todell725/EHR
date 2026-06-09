@@ -155,11 +155,9 @@ def deposit_to_inventory(material: str, qty: int) -> dict:
     usable inventory item (so what you grind in the Idle tab can be carried into the story)."""
     tick()
     key = state.normalize_material(material)
-    have = int(_materials().get(key, 0))
-    take = max(0, min(int(qty), have))
+    take = state.take_material(key, qty)  # atomic check-and-spend
     if take <= 0:
         return {"ok": False, "detail": "not enough in stores", **get_state()}
-    state.adjust_material(key, -take)
     hero = _hero()
     if hero:
         label = key.replace("_", " ").title()

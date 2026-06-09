@@ -83,11 +83,26 @@ def _ensure_npc(name: str, result: dict) -> dict | None:
 
 
 def _find_pc(name: str, pcs: list[dict]) -> dict | None:
+    """Resolve a PC by id, exact name, or unique partial name ("Kaelrath" matches
+    "Kaelrath Emberhide"). An empty or bare-numeric token means "the hero" — tags like
+    `HP_CHANGE: -5` legitimately omit the target. A real-but-unknown name (an NPC, an
+    enemy, a typo) returns None so the caller can note it; falling back to the hero
+    here would land the DM's `HP_CHANGE: Kryoss, -5` on the player's own sheet."""
     name = (name or "").strip().lower()
+    if not pcs:
+        return None
+    if not name or name.lstrip("+-").isdigit():
+        return pcs[0]
     for pc in pcs:
         if pc["name"].lower() == name or pc["id"].lower() == name:
             return pc
-    return pcs[0] if pcs else None
+    partial = [pc for pc in pcs
+               if name in pc["name"].lower() or pc["name"].lower() in name]
+    return partial[0] if len(partial) == 1 else None
+
+
+def _note_unknown_pc(tag: str, name: str, result: dict) -> None:
+    result["notes"].append(f"{tag}: {name!r} is not a party member — not applied")
 
 
 def _pc_and_item_args(args: list[str], pcs: list[dict]) -> tuple[dict | None, list[str]]:
@@ -280,7 +295,8 @@ def _lint(mech: Mechanic) -> str | None:
 
 def apply_mechanics(mechanics: list[Mechanic], *, acting_pc_id: str | None = None) -> MechanicsResult:
     pcs = state.list_pcs()
-    acting = _find_pc(acting_pc_id or (pcs[0]["id"] if pcs else ""), pcs) if pcs else None
+    # a stale/unknown acting id still means "the hero acts" — this is plumbing, not a DM tag
+    acting = (_find_pc(acting_pc_id or "", pcs) or pcs[0]) if pcs else None
 
     applied: list[str] = []
     rolls: list[RollResult] = []
@@ -322,11 +338,15 @@ def _dispatch(tag, args, pcs, acting, applied, rolls, result):  # noqa: C901 - f
             state.upsert_pc({"id": pc["id"], "hp": new,
                              "status": "down" if new == 0 else "alive"})
             applied.append(f"{pc['name']} HP {pc['hp']}->{new}")
+        else:
+            _note_unknown_pc(tag, args[0], result)
 
     elif tag == "SKILL_XP" and len(args) >= 2:
         # SKILL_XP: <skill>, <amount>   or   <pc>, <skill>, <amount>
         if len(args) >= 3:
             target, skill, amt = _find_pc(args[0], pcs), args[1], _coerce_int(args[2])
+            if target is None:
+                _note_unknown_pc(tag, args[0], result)
         else:
             target, skill, amt = acting, args[0], _coerce_int(args[1])
         if target and amt:
@@ -337,7 +357,14 @@ def _dispatch(tag, args, pcs, acting, applied, rolls, result):  # noqa: C901 - f
 
     elif tag == "XP_GRANT":
         amount = _coerce_int(args[-1])
-        targets = [_find_pc(args[0], pcs)] if len(args) >= 2 else pcs
+        if len(args) >= 2 and args[0].strip().lower() in ("party", "all", "everyone"):
+            targets = pcs
+        elif len(args) >= 2:
+            targets = [_find_pc(args[0], pcs)]
+            if targets == [None]:
+                _note_unknown_pc(tag, args[0], result)
+        else:
+            targets = pcs
         for pc in filter(None, targets):
             xp = pc["xp"] + amount
             lvl = homebrew.char_level_for_xp(xp)
@@ -378,6 +405,8 @@ def _dispatch(tag, args, pcs, acting, applied, rolls, result):  # noqa: C901 - f
             conds.append({"name": name, "rounds": rounds})
             state.upsert_pc({"id": pc["id"], "conditions": conds})
             applied.append(f"{pc['name']} {'refreshes' if existing else 'gains'} {name}")
+        else:
+            _note_unknown_pc(tag, args[0], result)
 
     elif tag == "CONDITION_REMOVE" and len(args) >= 2:
         pc = _find_pc(args[0], pcs)
@@ -385,6 +414,8 @@ def _dispatch(tag, args, pcs, acting, applied, rolls, result):  # noqa: C901 - f
             conds = [c for c in pc["conditions"] if c.get("name", "").lower() != args[1].lower()]
             state.upsert_pc({"id": pc["id"], "conditions": conds})
             applied.append(f"{pc['name']} loses {args[1]}")
+        else:
+            _note_unknown_pc(tag, args[0], result)
 
     elif tag == "ITEM_ADD" and len(args) >= 2:
         pc, item_args = _pc_and_item_args(args, pcs)
@@ -551,24 +582,26 @@ def _dispatch(tag, args, pcs, acting, applied, rolls, result):  # noqa: C901 - f
         # uses only the public kingdom API so it survives the dashboard rebuild underneath.
         from backend.sim import kingdom
 
-        dom = kingdom.get_domain()
-        if dom is not None:
-            stat = args[0].strip().lower()
-            stat = _KINGDOM_ALIASES.get(stat, stat)
-            delta = _coerce_int(args[1], 0)
-            top = {"population", "treasury", "military", "morale", "infrastructure"}
-            if delta and stat in top:
-                new = dom.get(stat, 0) + delta
-                new = _clamp(new, 1, 5) if stat == "morale" else max(0, new)
-                dom[stat] = new
-                kingdom.set_domain(dom)
-                applied.append(f"kingdom {stat} {'+' if delta >= 0 else ''}{delta} -> {new}")
-            elif delta:  # otherwise treat it as a stockpile (food/lumber/ore/supplies/...)
-                key = stat.split(".", 1)[1] if stat.startswith("stockpiles") else stat
-                stocks = dom.setdefault("stockpiles", {})
-                stocks[key] = max(0, stocks.get(key, 0) + delta)
-                kingdom.set_domain(dom)
-                applied.append(f"kingdom stores {key} {'+' if delta >= 0 else ''}{delta} -> {stocks[key]}")
+        with kingdom.DOMAIN_LOCK:   # read-modify-write must not interleave with ticks/UI
+            dom = kingdom.get_domain()
+            if dom is not None:
+                stat = args[0].strip().lower()
+                stat = _KINGDOM_ALIASES.get(stat, stat)
+                delta = _coerce_int(args[1], 0)
+                top = {"population", "treasury", "military", "morale", "infrastructure"}
+                if delta and stat in top:
+                    new = dom.get(stat, 0) + delta
+                    new = _clamp(new, 1, 5) if stat == "morale" else max(0, new)
+                    dom[stat] = new
+                    kingdom.set_domain(dom)
+                    applied.append(f"kingdom {stat} {'+' if delta >= 0 else ''}{delta} -> {new}")
+                elif delta:  # otherwise treat it as a stockpile (food/lumber/ore/supplies/...)
+                    key = stat.split(".", 1)[1] if stat.startswith("stockpiles") else stat
+                    stocks = dom.setdefault("stockpiles", {})
+                    stocks[key] = max(0, stocks.get(key, 0) + delta)
+                    kingdom.set_domain(dom)
+                    applied.append(f"kingdom stores {key} {'+' if delta >= 0 else ''}{delta} "
+                                   f"-> {stocks[key]}")
 
     elif tag == "BUILDING_PROPOSE" and args:
         # the council/story proposes a new building -> it becomes buildable in the Kingdom tab

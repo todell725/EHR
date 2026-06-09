@@ -11,8 +11,10 @@ are the kingdom-scale equivalents of quests: they demand a player choice and rea
 
 from __future__ import annotations
 
+import functools
 import json
 import random
+import threading
 
 from backend.core import db, state
 
@@ -501,6 +503,23 @@ def set_domain(domain: dict) -> None:
     )
 
 
+# All domain read-modify-writes serialize on this lock. The economy tick, per-beat
+# project ticks, labor/crew edits, builds, invests, and the DM's KINGDOM_CHANGE all
+# rewrite the same `meta.domain` JSON blob from different threads (background loops vs
+# threadpool request handlers); without it, the slower writer clobbers the faster one.
+DOMAIN_LOCK = threading.RLock()
+
+
+def domain_locked(fn):
+    """Run a domain read-modify-write atomically under DOMAIN_LOCK (re-entrant)."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with DOMAIN_LOCK:
+            return fn(*args, **kwargs)
+    return wrapper
+
+
+@domain_locked
 def found_domain(name: str, *, enable_economy: bool = True) -> dict:
     """Flip the campaign into its kingdom-building phase."""
     world = state.get_world()
@@ -534,17 +553,16 @@ def bucket_for(material: str) -> str:
     return _KINGDOM_BUCKET.get(state.normalize_material(material), "supplies")
 
 
+@domain_locked
 def invest_material(material: str, qty: int) -> dict:
     """Pour gathered idle stores into the realm's stockpiles — what you grind in the
     Idle tab becomes the kingdom's lumber, food, and ore."""
     domain = get_domain()
     if domain is None:
         return {"ok": False, "detail": "no kingdom yet — found one first"}
-    have = int(state.get_materials().get(state.normalize_material(material), 0))
-    take = max(0, min(int(qty), have))
+    take = state.take_material(material, qty)  # atomic check-and-spend
     if take <= 0:
         return {"ok": False, "detail": "not enough in stores"}
-    state.adjust_material(material, -take)
     bucket = bucket_for(material)
     stock = domain.setdefault("stockpiles", {})
     stock[bucket] = stock.get(bucket, 0) + take
@@ -563,6 +581,7 @@ def _apply_effect(domain: dict, effect: dict) -> None:
     domain["morale"] = max(1, min(5, domain.get("morale", 3)))
 
 
+@domain_locked
 def seasonal_event() -> dict | None:
     """Roll one seasonal decision event and apply its baseline effect."""
     domain = get_domain()
@@ -577,14 +596,18 @@ def seasonal_event() -> dict | None:
 
 # ------------------------------------------------------------------ labor
 
+@domain_locked
 def set_labor(labor: dict) -> dict:
-    """Reallocate the kingdom's labor pool. Values are clamped to non-negative
-    and scaled so the total never exceeds population."""
+    """Reallocate the kingdom's labor pool. Incoming values are merged onto the
+    existing ledger (the UI sends only the categories that moved — a partial update
+    must not erase the rest), clamped to non-negative, and scaled so the total never
+    exceeds population."""
     domain = get_domain()
     if domain is None:
         return {"ok": False, "detail": "no kingdom"}
     pop = domain.get("population", 0)
-    clean = {k: max(0, int(v)) for k, v in labor.items()}
+    clean = {k: max(0, int(v)) for k, v in (domain.get("labor") or {}).items()}
+    clean.update({k: max(0, int(v)) for k, v in labor.items()})
     total = sum(clean.values())
     if total > pop:
         # scale down proportionally
@@ -596,6 +619,7 @@ def set_labor(labor: dict) -> dict:
 
 
 # ------------------------------------------------------------------ crews / teams
+@domain_locked
 def set_crews(crews: list) -> dict:
     """Replace the realm's named crews/teams (the player's per-crew headcount edits).
     Stored on the domain so the DM/council can SEE the player's allocations."""
@@ -614,6 +638,7 @@ def set_crews(crews: list) -> dict:
     return {"ok": True, "crews": clean}
 
 
+@domain_locked
 def add_crew(name: str, size: int = 0, role: str = "") -> dict:
     """Add or update a named crew (e.g. the council stands up a new team in-story)."""
     domain = get_domain()
@@ -635,6 +660,7 @@ def add_crew(name: str, size: int = 0, role: str = "") -> dict:
     return {"ok": True, "crews": crews}
 
 
+@domain_locked
 def auto_labor() -> dict:
     """Smart labor auto-allocation — reads the realm's actual situation and prioritizes
     accordingly (food first, crafters when building or short on resources, a standing
@@ -723,6 +749,7 @@ def all_buildings() -> dict:
     return {**BUILDINGS, **custom_buildings()}
 
 
+@domain_locked
 def add_building(label: str, *, key: str = "", category: str = "civilian", desc: str = "",
                  cost: dict | None = None, turns: int = 3, effect: dict | None = None,
                  ongoing: dict | None = None, requires: list | None = None,
@@ -751,6 +778,7 @@ def add_building(label: str, *, key: str = "", category: str = "civilian", desc:
     return {"ok": True, "key": key, "spec": spec}
 
 
+@domain_locked
 def start_building(key: str) -> dict:
     """Begin construction of a building if affordable, not already built, and prerequisites met."""
     domain = get_domain()
@@ -802,6 +830,7 @@ def _check_auto_buildings(domain: dict) -> list[str]:
     return added
 
 
+@domain_locked
 def tick_projects() -> dict:
     """Advance all active projects by one turn. Completed projects apply their
     permanent effect and move to the buildings list."""

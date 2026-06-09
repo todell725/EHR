@@ -143,8 +143,13 @@ class TurnBroker:
             logger.warning("could not persist feed: %s", exc)
 
     def restore_feed(self) -> None:
-        """Reload the feed from disk on startup so the last beats (including injected
-        montages) reappear after a restart. Called once from app lifespan."""
+        """Reload the feed from disk: at startup so the last beats (including injected
+        montages) reappear after a restart, and after an undo so beats rolled back with
+        the DB don't linger in memory and get replayed/re-persisted. The in-memory feed
+        is reset first so this is authoritative either way; seq only ever ratchets up,
+        so connected clients' dedup-by-seq stays valid."""
+        self.recent = deque(maxlen=12)
+        self.current = None
         try:
             row = db.query_one("SELECT value FROM meta WHERE key = 'feed_recent'")
             if not row:

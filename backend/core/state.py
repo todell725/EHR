@@ -321,6 +321,20 @@ def set_materials(mats: dict) -> None:
 MATERIAL_LOCK = threading.RLock()
 
 
+def take_material(name: str, qty: int) -> int:
+    """Atomically remove up to `qty` of a material and return how much was actually
+    taken. The availability check and the spend happen under one MATERIAL_LOCK hold —
+    a check done outside the lock lets two concurrent spenders (double-clicked invest/
+    deposit, or a DM MATERIAL_SPEND racing the UI) both get credited from one balance."""
+    key = normalize_material(name)
+    with MATERIAL_LOCK:
+        have = int(get_materials().get(key, 0))
+        take = max(0, min(int(qty), have))
+        if take:
+            adjust_material(key, -take)
+        return take
+
+
 def adjust_material(name: str, delta: int) -> int:
     """Add (or remove, if delta<0) a material in the shared camp stores. Clamps at 0,
     drops empties. Returns the new quantity. Normalizes the name first."""
