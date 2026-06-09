@@ -11,6 +11,7 @@ models silently breaks similarity. `dims` is recorded per row as a tripwire.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import numpy as np
@@ -148,33 +149,38 @@ async def retrieve(
     if not rows:
         return []
 
-    mat = np.vstack([from_blob(r["embedding"]) for r in rows])
-    # cosine = normalized dot product
-    qn = q / (np.linalg.norm(q) + 1e-9)
-    mn = mat / (np.linalg.norm(mat, axis=1, keepdims=True) + 1e-9)
-    scores = mn @ qn
+    def _rank() -> list[dict]:
+        # cosine = normalized dot product
+        mat = np.vstack([from_blob(r["embedding"]) for r in rows])
+        qn = q / (np.linalg.norm(q) + 1e-9)
+        mn = mat / (np.linalg.norm(mat, axis=1, keepdims=True) + 1e-9)
+        scores = mn @ qn
 
-    # Scan more than k so we can drop near-duplicates and still fill k slots.
-    order = np.argsort(scores)[::-1][: k * 4]
-    out: list[dict] = []
-    seen: list[set[str]] = []
-    for i in order:
-        score = float(scores[i])
-        if score < threshold:
-            break  # sorted desc — nothing better remains
-        r = rows[i]
-        # cheap near-duplicate guard: high token-overlap with an already-picked chunk
-        toks = set(r["text"].lower().split())
-        if any(toks and len(toks & s) / len(toks) > 0.8 for s in seen):
-            continue
-        seen.append(toks)
-        out.append(
-            {"id": r["id"], "kind": r["kind"], "text": r["text"],
-             "score": round(score, 4), "era": r["era"], "source": r["source"]}
-        )
-        if len(out) >= k:
-            break
-    return out
+        # Scan more than k so we can drop near-duplicates and still fill k slots.
+        order = np.argsort(scores)[::-1][: k * 4]
+        out: list[dict] = []
+        seen: list[set[str]] = []
+        for i in order:
+            score = float(scores[i])
+            if score < threshold:
+                break  # sorted desc — nothing better remains
+            r = rows[i]
+            # cheap near-duplicate guard: high token-overlap with an already-picked chunk
+            toks = set(r["text"].lower().split())
+            if any(toks and len(toks & s) / len(toks) > 0.8 for s in seen):
+                continue
+            seen.append(toks)
+            out.append(
+                {"id": r["id"], "kind": r["kind"], "text": r["text"],
+                 "score": round(score, 4), "era": r["era"], "source": r["source"]}
+            )
+            if len(out) >= k:
+                break
+        return out
+
+    # the vstack + matmul + rank is synchronous CPU work; run it off the event loop so a
+    # big memory_chunks table can't stall the WebSocket stream / UI during retrieval.
+    return await asyncio.to_thread(_rank)
 
 
 def count() -> dict:

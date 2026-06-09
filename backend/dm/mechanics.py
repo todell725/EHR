@@ -346,9 +346,12 @@ def _dispatch(tag, args, pcs, acting, applied, rolls, result):  # noqa: C901 - f
                 rounds = int(parts[-1])
                 parts = parts[:-1]
             name = ", ".join(parts)
-            conds = pc["conditions"] + [{"name": name, "rounds": rounds}]
+            # dedupe: re-applying a condition REFRESHES its duration, not stacks duplicates
+            existing = [c for c in pc["conditions"] if c.get("name", "").lower() == name.lower()]
+            conds = [c for c in pc["conditions"] if c.get("name", "").lower() != name.lower()]
+            conds.append({"name": name, "rounds": rounds})
             state.upsert_pc({"id": pc["id"], "conditions": conds})
-            applied.append(f"{pc['name']} gains {name}")
+            applied.append(f"{pc['name']} {'refreshes' if existing else 'gains'} {name}")
 
     elif tag == "CONDITION_REMOVE" and len(args) >= 2:
         pc = _find_pc(args[0], pcs)

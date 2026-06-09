@@ -36,3 +36,13 @@ def test_faction_resources_stay_bounded(fresh_db):
     for fid in ("F1", "F2"):
         res = state.get_faction(fid)["resources"]
         assert factions.RES_MIN <= res <= factions.RES_MAX
+
+
+# #1 — re-applying a condition refreshes duration, never stacks duplicates
+def test_condition_add_dedupes(fresh_db):
+    _hero()
+    for rounds in ("3", "5", "2"):
+        mechanics.apply_mechanics([Mechanic(tag="CONDITION_ADD", args=["Kaelrath", "Exhaustion", rounds],
+                                            raw=f"CONDITION_ADD: Kaelrath, Exhaustion, {rounds}")])
+    conds = state.get_pc("PC-h")["conditions"]
+    assert conds == [{"name": "Exhaustion", "rounds": 2}]   # one entry, latest duration
