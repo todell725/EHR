@@ -102,6 +102,15 @@ async def play_action(body: PlayAction) -> dict:
     return await orchestrator.take_turn(body.text, body.pc_id)
 
 
+@router.post("/play/submit")
+async def play_submit(body: PlayAction) -> dict:
+    """Enqueue a turn through the broker so it STREAMS into the live feed (used by the
+    quest 'pick this up' buttons and any out-of-composer nudge). Returns ok=False if a
+    turn is already running."""
+    started = await broker.submit(body.text, body.pc_id)
+    return {"ok": started}
+
+
 class InjectBeat(BaseModel):
     narrative: str
     suggestions: list[dict] = []

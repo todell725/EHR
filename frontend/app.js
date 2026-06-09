@@ -325,7 +325,12 @@ function Sidebar({ world, combat, reload, toast, open, onClose }) {
         ${shown.length === 0 && html`<p class="muted small">${questView === "completed" ? "Nothing completed yet." : "No active quests."}</p>`}
         ${shown.map((q) => html`<div class=${"card" + (questView === "completed" ? " quest-done" : "")} key=${q.id}>
           <strong>${questView === "completed" ? "✓ " : ""}${q.title}</strong>
-          ${q.description ? html`<div class="small">${q.description}</div>` : null}</div>`)}
+          ${q.description ? html`<div class="small">${q.description}</div>` : null}
+          ${questView !== "completed" ? html`<button class="small" style="margin-top:7px" onClick=${async () => {
+            const r = await post("/api/play/submit", { text: `I turn my attention back to the quest "${q.title}"${q.description ? ` (${q.description})` : ""}. Weave it back into the story — where do we stand, and what's the next move?` });
+            toast(r.ok ? "↪ Sent to the Weaver — open the story" : "The Weaver's mid-turn — try again in a sec", r.ok ? "info" : "warn");
+            if (r.ok && onClose) onClose();
+          }}>↪ Pick this up</button>` : null}</div>`)}
         <div class="row" style="margin:8px 0 4px; align-items:center">
           <h3 style="margin:0">Threads</h3>
           ${(world?.hooks || []).length > 6 ? html`<button style="margin-left:auto" onClick=${async () => {
