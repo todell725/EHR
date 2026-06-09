@@ -193,9 +193,20 @@ async def _narrate(messages, primary: str, fallback: str, ttft: float):
 
     if not fell_back:
         yield ("delta", first)
-        async for d in ait:
-            yield ("delta", d)
-        return
+        try:
+            async for d in ait:
+                yield ("delta", d)
+            return
+        except BaseException as exc:  # noqa: BLE001 - mid-stream transport drop (cloud models do this)
+            logger.warning("primary narration '%s' dropped mid-stream (%s)", primary, exc)
+            _abandon(ait)
+            if not fallback or fallback == primary:
+                raise
+            # discard the partial and regenerate cleanly on the fallback (consumer resets display)
+            yield ("reset", fallback)
+            async for d in llm.stream_chat(messages, mode="narration", model=fallback):
+                yield ("delta", d)
+            return
 
     yield ("fallback", fallback)
     async for d in llm.stream_chat(messages, mode="narration", model=fallback):
@@ -309,6 +320,16 @@ async def stream_turn(action: str, pc_id: str | None = None) -> AsyncIterator[di
                            "message": f"Primary model slow — switched to {val}."}
                     full, shown = "", 0  # restart accumulation for the fallback stream
                     continue
+                if kind == "reset":
+                    # primary dropped mid-stream: wipe the partial text already on screen and
+                    # restart cleanly on the fallback (no half-narration left dangling)
+                    primary_active = False
+                    used_model = val
+                    full, shown = "", 0
+                    yield {"type": "narrative_reset"}
+                    yield {"type": "notice",
+                           "message": f"Primary dropped mid-stream — regenerating on {val}."}
+                    continue
                 if primary_active and not full:
                     mark_warm(narration_model)  # primary produced -> it's warm now
                 full += val
@@ -360,7 +381,8 @@ async def stream_turn(action: str, pc_id: str | None = None) -> AsyncIterator[di
             if reparsed.parse_ok:
                 parsed = reparsed
                 used_model = settings.intimate_model
-                yield {"type": "token", "text": "\n" + parsed.narrative}
+                yield {"type": "narrative_reset"}   # clear the refused text, don't append to it
+                yield {"type": "token", "text": parsed.narrative}
         except Exception as exc:  # noqa: BLE001
             logger.warning("intimate fallback failed: %s", exc)
 

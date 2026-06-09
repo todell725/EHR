@@ -124,6 +124,7 @@ function Play({ onStateChange, onCombat, toast, reportConn, onModel }) {
       if (e.model && onModel) onModel(e.model);
       acc.current = ""; setStreaming(""); setBusy(true); return;
     }
+    if (e.type === "narrative_reset") { acc.current = ""; setStreaming(""); return; }
     if (e.type === "token") {
       if (seen(e)) return;          // suppress token replay of a turn we already rendered
       acc.current += e.text; setStreaming(acc.current); return;
