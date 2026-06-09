@@ -585,4 +585,6 @@ def _dispatch(tag, args, pcs, acting, applied, rolls, result):  # noqa: C901 - f
         applied.append(f"enemy {args[0]} HP -> {hp}" + ("" if tracked else " (no active combat)"))
 
     else:
-        applied.append(f"(unhandled {tag}: {', '.join(args)})")
+        # a known tag that fell through every branch — usually malformed/too-few args.
+        # nothing changed, so it belongs in notes (like unrecognized tags), not `applied`.
+        result["notes"].append(f"(unhandled {tag}: {', '.join(args)})")
