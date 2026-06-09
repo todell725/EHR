@@ -19,7 +19,9 @@ Status: a **trustworthy beta** the user is actively *playing*. Campaign can't be
 (undo/backups), DM contract adherence proven, model-agnostic (local + Ollama cloud), mobile
 UI + installable PWA. Live server runs on `:8000`; run pattern:
 `nohup ./.venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 ... >/tmp/eh-server.log 2>&1 &`.
-**97 tests pass**; SCHEMA_VERSION=8; `.venv` is **Python 3.12** (not the 3.14 system default).
+**156 tests pass**; SCHEMA_VERSION=8; `.venv` is **Python 3.12** (not the 3.14 system default).
+**NOW DEPLOYED & LIVE on funiserver:8000 — the canonical save lives there, not the Mac** (see Decisions/Sessions).
+**Source is in a PRIVATE GitHub repo: `todell725/EHR`** (gh CLI logged in as todell725; `.env` + `data/` gitignored).
 Frontend is static (refresh browser to pick up changes; hard-refresh to bust cache). Server reads
 the DB live. Currently running on **`deepseek-v4-pro:cloud` + `FULL_CONTEXT=true`** (premium tier).
 Tabs now: World, Heroes, Party, **Inventory**, Combat, Idle, Factions, Quests, **Journal**,
@@ -35,6 +37,30 @@ Orina, Forgemaster Bheric, Loremaster Sella**. ~446+ chronicle beats; campaign v
 across the whole ascension. Fire anchor = **Sol-Thairn** (last ember of the First Flame, now in the
 vault). The whole back half was driven by **owner-authored cinematic beats** I wrote + applied +
 pushed to the feed (see inject system below), not live model turns.
+**CAMPAIGN STATE (2026-06-05) — POST-ASCENSION KINGDOM PLAY, deep in it.** EmberHeart is a thriving
+**city of ~12,000** (population growth now hard-capped there by the user — logistics — via
+`domain.housing_cap`). New live arc: the **EMPTY THRONE** — a faceless void-herald named **Kryoss**
+stands at the north treeline (the void/"Singing Death" is back as the main threat). **Vaelis Thorne**
+(tiefling arcanist, one of the old-party "wives") just **arrived** bursting into the council with the
+only intel on the Empty Throne — now a tracked NPC (`NPC-vaelis`), slow-burn consort + the realm's
+void-scholar; SEEDED SECRET the DM can spring: *Kaelrath's void-scar is a RECEIVER the Empty Throne can
+reach through*. Active threads: the **ember-glass panoply/sword** (vision in his journal — to forge from
+the Elder Ember-glass Heart + 31 shards + obsidian steel + dragon's gold + sun stone, at the Shardwork
+with Bheric + Sol-Thairn); consort hooks for **Silvara** (bard) & **Mareth** (knight) still pending
+(not yet arrived). EmberHeart now has an AI-art **visual codex** in the Gallery tab (canon images).
+**CAMPAIGN STATE (2026-06-08) — DAY 82, THE EVE OF THE CORONATION (user is about to PLAY the crowning).**
+Since the Empty-Throne reveal: Kaelrath grew **ASCENDANT WINGS** (ember-glass-and-fire dragon wings —
+real flight, "a hearth not a sun"; the louder light-speed **Flamewalk** is the riskier alt that beacons the
+void) and we codified that divine acts run on a **3-tier cost curve** (domain-aligned = free; reality-bending
+= costly; against-nature = Sacrifice). He spent **72h at the God-Forge** making divine-steel GIFTS for the
+council (Renn's void-cold sword, Bheric's hammer, Sella's stylus, Vaelis's void-proof resonator-fork, Orina's
+tools, Talmarr's arrows + himself; district hearth-relays). Then a **3-week montage**: flew out and claimed
+**obsidian steel** (Fire-domain guardian, by being *known* not fighting) + **dragon's gold** (a dead dragon's
+cairn); the **Shardwrought Panoply is FORGED but for one empty socket** — the **sun stone** sits in the
+**Sunken Caldera, a Sundering-wound that knows his void-scar by name** (Vaelis flagged it; DEFERRED until
+after the coronation = the next great quest, ties to the Empty Throne). Kingdom: pop ~12k, **7 standing crews
+seeded** in the Labor tab (Ranger Drills, King's Relay, Void-Watch, N. Trade Caravan, Hearth-Channel Sweep=32
+one-per-ring, Smiths' Crew, Housing Crew) + 3 buildings (Barracks, Tool-Works, Void-Ward Sanctum).
 Architectural ancestors / corpus: [[project-dnd]] (Claudes-EmberHeart rich corpus),
 [[project-emberheart-origins]] (FastAPI+Ollama ancestor), [[project-emberheart-citybuilder]].
 
@@ -98,6 +124,68 @@ the forgetting void.
   normalized via `state.normalize_material` (logs→wood, meat→raw_meat, …).
 - **Inventory tab** (own tab, drop/adjust qty, 🧹 Tidy = merge dupes + strip junk;
   `/api/pcs/{id}/inventory/set|tidy`). Moved off the cramped Heroes sheet.
+- **KINGDOM MANAGEMENT DASHBOARD — built collaboratively with a second agent ("kimi").** Org model
+  the user runs: **kimi = junior dev (builds), me = senior dev (reviews/hardens), user = PM/QA**.
+  Lane discipline: kimi owns `sim/kingdom.py` (buildings/projects/labor), `sim/economy.py` depth,
+  `api/world.py` kingdom endpoints, and `KingdomPane` in `app.js`; I own DM-side mechanics
+  (`mechanics.py`, `prompt.py`), the economy starvation fix, and review. Shared contract: the domain
+  ledger stays in **`meta.domain`** (JSON) behind `kingdom.get_domain()/set_domain()` — keep those
+  + field names (`morale/treasury/military/population/infrastructure/stockpiles`) stable or both
+  sides desync. **`KINGDOM_CHANGE` DM mechanic** (mine): the DM moves the realm from the story
+  (`KINGDOM_CHANGE: morale, +1` / `treasury, -200` / `food, +500`) — stat synonyms + tag aliases;
+  morale clamps 1–5. **Building system** (kimi): full ~37-building catalog by category w/ `requires`
+  prereqs, `cost`, `turns`, one-shot `effect` (applied on completion) + **`ongoing` dict read live by
+  `economy.py`** (granary food_cap_mult, workshop/shardwork craft_bonus, market/hearth_hall
+  trade_income, quarry_ore, aquaculture_food, brewery_morale, pop_cap_bonus, mender_soften…). 3
+  pre-built (blood_wall/ember_vault/god_forge) seeded on founding; `memorial_wall` auto-builds at 10+
+  chronicle beats. Catalog spec lives in `docs/kingdom-building-prompt.md`. **Smart `auto_labor()`**
+  (mine, `/api/world/labor-auto` + ⚡ button): priority bands — famine→58% farming, tight→46%,
+  building→32% craft, prosperous→balanced+defense — never an even split, always sums to pop, returns
+  a rationale string.
+- **Post-ascension = KINGDOM-BUILDING MODE.** When `domain_ruled`, `working.py` injects a KINGDOM
+  ledger line + a directive to **slide from questing to rulership**, with the user's **ruler's-day
+  rhythm** (wake → council → tackle the day's problems) and a strict **COUNCIL MEETING FORMAT**: (1)
+  State of the Realm stats, (2) each advisor reports on their domain + brings one proposal
+  (Warden Renn=defense, Hearthkeeper Orina=food/people, Forgemaster Bheric=building/industry,
+  Loremaster Sella=lore/threats, Queen Talmarr=co-ruler) + noble proposals/petitions/upgrades, (3)
+  council reacts/debates, (4) **stop for Kaelrath's final ruling** (don't decide for him). **Build
+  ticks now advance one per play-beat** (orchestrator calls `kingdom.tick_projects()` per turn when
+  `domain_ruled`) so construction keeps pace with the story; the manual "Tick projects" button still
+  works. **Private companion chat now uses the DM's model** (`companion_chat.send` calls
+  `routing.pick_narration_model` → deepseek + same intimate routing as the game, not the cheap
+  `chat_model`).
+- **Gallery** (`frontend/gallery/` folder + `GET /api/gallery` + Gallery tab w/ lightbox): drop-a-file
+  visual codex, zero-DB. The folder IS the gallery — images served static at `/gallery/<file>`, the
+  endpoint enumerates them, optional `gallery/captions.json` maps filename→caption (else prettified
+  filename). Used for AI-generated **canon art** of EmberHeart (aerial city, gate, Kaelrath portrait,
+  Kaelrath-vs-Kryoss, the vault, the ember-glass panoply). Image-prompt style that works: comma-
+  separated visual nouns, "warm amber city vs cold blue-white snow" contrast, lava-veined black wall,
+  district-wheels each with a hearth-fire.
+- **`KINGDOM_CHANGE` is mine; the council "approve via SUGGESTIONS multi-select" is a UI thing** — the
+  play-feed suggestions are now **toggle-select + a "▶ Do these (N)" button** (pick several, sent as
+  one combined action "I'll do these: …") instead of click-to-send-immediately. Good for greenlighting
+  multiple council proposals in one turn.
+- **`auto_labor()`** (`/api/world/labor-auto`, ⚡ button): smart priority-band labor split (famine→58%
+  farming, tight→46%, building→32% craft, prosperous→balanced+defense) — never even, always sums to
+  pop, returns a rationale.
+- **Old-corpus reuse for NPCs/wives:** the user's past-game "wives" = the old PC party women in
+  `Dnd/Claudes-EmberHeart/docs/PARTY_STATE.json` (PC-02 **Talmarr** = current queen; PC-03 **Silvara**
+  bard, PC-04 **Mareth** knight, PC-05 **Vaelis Thorne** tiefling wizard). Romance styles in
+  `NPC_ORIENTATIONS.json`. The **CONSORT FRAME** is seeded as a hook: EmberHeart tradition lets the
+  Flamekeeper take more than one wife; Talmarr stays queen-first and content; new bonds are SLOW/earned,
+  never framed as cheating on Talmarr.
+- **Dynamic building catalog:** the static `BUILDINGS` dict is merged with story-proposed buildings
+  via `kingdom.all_buildings()` (custom ones in `meta.custom_buildings`); ALL consumers route through it
+  (get_summary catalog, start_building, tick_projects, economy `_ongoing`). The DM/council proposes one
+  with **`BUILDING_PROPOSE: <name>, <category?>`** → instantly buildable in the Kingdom tab. `add_building()`
+  is the helper.
+- **Building upgrades:** a catalog entry with `upgrades_from: <base_key>` is an upgrade — completing it
+  REPLACES the base in `built` (tick_projects). UI hides upgrade entries from the normal list and surfaces
+  them as an **"⬆ Upgrade"** button on the built base.
+- **Crews/Teams** (`domain.crews` = [{name,size,role}]): editable in the **Labor sub-tab** (add/resize/
+  remove → `POST /api/world/crews` → `set_crews`); the council stands one up in-story via **`CREW_SET:
+  <name>, <size?>, <role?>`** (`add_crew`). **Crews are injected into DM working memory** ("honor these
+  numbers, react to changes") so the council SEES the ruler's allocations. 7 crews seeded from play.
 - **Memory = SQLite + numpy brute-force cosine** (corpus <10k chunks → no vector server/Chroma).
   Embeddings via `nomic-embed-text` (768-dim). **Never change the embed model once populated** —
   mixing breaks cosine; the `dims` column is the tripwire.
@@ -105,8 +193,55 @@ the forgetting void.
   *declares* changes via tags; deterministic Python *applies* them; **Python owns all dice.**
   `STRICT_OUTPUT=true` switches to a guaranteed-parseable JSON contract (escape hatch for model
   drift) at the cost of live streaming.
-- Deploy target funiserver via Docker (`host.docker.internal` for Ollama, uid 99:100). `.env`
-  not in git; `data/` (live campaign DB) never clobbered by deploy.
+- **DEPLOYED & LIVE on funiserver (2026-06-08).** Container `emberheart-reborn` on **funiserver:8000**
+  (tailnet `100.114.116.111`), build dir `/mnt/user/appdata/emberheart-reborn`, **canonical save at
+  `…/data/emberheart.db`** (the Mac copy is now just a backup — DON'T play on the Mac, it'd diverge).
+  funiserver runs Ollama (container **`ollama`** = official `ollama/ollama` :11434 — see the OllamaUI
+  saga in Gotchas) on an **RTX 3060** with all needed models: `deepseek-v4-pro:cloud` (narration),
+  `gemma4:e4b` (adjudication/chat/fallback), `nomic-embed-text` 768-dim (memory), and intimate
+  **`dolphin3:8b`** (Llama 3.1 8B uncensored — replaced the `sparksammy/samantha…20b` that wouldn't pull).
+  Models live on the host volume **`/mnt/user/Data/LLM`** (survive container swaps). App reaches Ollama via
+  `host.docker.internal:11434/v1`. The old `emberheart:origins` container was RETIRED to free :8000. **`scripts/deploy.sh`** = one-command push
+  (runs pytest → rsync code → `compose up -d --build` → health-check); it PROTECTS `data/`, `.env`, and
+  `frontend/gallery/*` images (gallery images now live server-side; `captions.json` still syncs). I can
+  SSH to funiserver (root). `.env` not in git.
+- **No-cache middleware (`revalidate_static` in main.py):** HTML/JS/CSS now return `Cache-Control:
+  no-cache` + ETag so UI changes show up without the old hard-refresh / iOS-PWA-swipe-kill fight (cheap
+  304s). **Mobile fit fixed:** `viewport-fit=cover` + black-translucent status bar needed `env(safe-area-
+  inset-*)` insets on header/composer/drawer (content was under the Dynamic Island / home indicator);
+  plus `overflow-x:hidden` + `min-width:0` guards and a mobile stack for the crews grid. Also the play
+  feed's **suggestions now auto-fold** on mobile when you scroll up to read (log `onScroll` → `collapsed`
+  class → max-height transition; desktop unaffected; they return at the bottom / on a new beat).
+- **The feed is now DB-BACKED (`broker.recent` persists).** Injected/montage beats were IN-MEMORY only
+  (`broker.recent`, deque maxlen 12) → wiped by every container restart/deploy (the live game STATE always
+  survived; only the *display* of injects was lost). Fix: `_persist_feed()` writes the buffer to
+  `meta.feed_recent` on every turn/inject; `broker.restore_feed()` reloads it in the lifespan startup
+  (after `db.init_db()`). So the last 12 beats now survive refresh, app-close, AND restart. **Gotcha when
+  re-pushing a lost inject: re-inject AFTER the deploy that added persistence** (an inject through the old
+  code won't be on disk, so the deploy's restart wipes it again).
+- **Source in PRIVATE GitHub `todell725/EHR`** (gh CLI authed as todell725, HTTPS). `git push` to ship.
+  `.gitignore` excludes `.env`, the WHOLE `/data/` dir (DB + backups/ + snapshots/ — first attempt only
+  ignored `/data/*.db` and missed the subdirs, nearly committing ~150 backup DBs), `/logs/`, and gallery
+  image binaries (captions.json + README kept). `.env.example` IS tracked as the config template.
+- **Trust-boundary hardening (from code reviews, 2026-06-08/09):** added `test_mechanics_adversarial.py`
+  (25 hostile/malformed tags → never crash, never corrupt; HP clamps, no neg stacks, injection-safe). The
+  boundary noted unknown tags but a malformed KNOWN tag fell to `applied` as "(unhandled)" → routed to
+  `notes`. **Inject can now carry validated mechanics** (`InjectBeat.mechanics` → `apply_inject_mechanics`
+  → through `apply_mechanics`) so authored beats can't split-brain prose vs state — dogfooded paying the
+  16-quest back-bounty. **Narration resilience:** first-token fallback already covered a slow START; added
+  **mid-stream drop recovery** (cloud "incomplete chunked read") — `_narrate` catches it, emits a
+  `("reset")`→`{"type":"narrative_reset"}` that WIPES the partial on-screen text, regenerates on the
+  fallback model (also fixed the refusal double-narration the same way). **Faction resources clamped**
+  `[0,40]` + mean-reversion (were unbounded-up → runaway dominance; rep was already ±100). **Idle skill
+  levels already auto-apply** (no GM queue) — surfaced them (chronicle beat) so they're not silent.
+  **`CONDITION_ADD` dedups** (re-apply refreshes duration) + comma-safe name parse. **`scripts/reembed.py`**
+  re-embeds the whole corpus with a new EMBED_MODEL (removes the one-way-door). **RAG cosine** now runs via
+  `asyncio.to_thread` (off the event loop). PUSHED BACK on the reviewers re: raw-SQLite-ORM (single-writer,
+  fine), Alembic (version-gated migrations + narrow dup-column net is enough), and "dynamic SQL f-strings"
+  (identifiers are code-literal column names, values parameterized → injection unreachable by construction).
+- **Quest cards have a "↪ Pick this up" button** → `POST /api/play/submit` (new — enqueues a turn through
+  the BROKER so it STREAMS to the feed, unlike `/play/action` which runs detached) → DM re-engages the
+  thread live. Closes the sidebar on success.
 - **Model tiers (engine is model-agnostic — just change `NARRATION_MODEL`):** (1) FAST LOCAL
   `gemma4:e4b` (default, ~3–20s); (2) PREMIUM cloud `deepseek-v4-pro:cloud` (~26s warm, fastest
   cloud, 0 rejected) + `FULL_CONTEXT=true`; also `glm-5.1:cloud` (~33s), `kimi-k2.6:cloud` (~60s
@@ -170,6 +305,44 @@ the forgetting void.
   still L4). `meta` table lives in `schema.sql` (not a migration); journal helpers in `state.py`.
 
 ## Gotchas
+- **THE OLLAMA "Connection error" SAGA (2026-06-09) — root cause was infra, not the app.** The old Ollama
+  container was **`OllamaUI`** (`ghcr.io/chrizzo84/ollamaui:main`, a bundled Ollama-server + WebUI image).
+  Its Docker **healthcheck pinged the WebUI on :3000, which was dead** → container marked `unhealthy` →
+  the **`autoheal`** container (`AUTOHEAL_CONTAINER_LABEL=all`, watches everything) **killed+restarted it
+  every ~2.5 min** → the Ollama server (:11434) the game depends on kept dropping → turns landing in a
+  restart window got "LLM unavailable: Connection error" (deepseek AND the gemma fallback both fail because
+  Ollama itself is down). Diagnosis trail: `docker events` showed `health_status: unhealthy → kill(15) →
+  die(143) → restart` on a clock. **Fix:** the user replaced it with the plain **official `ollama/ollama`**
+  image (no WebUI, **no healthcheck → autoheal-safe**); models persisted via the `/mnt/user/Data/LLM`
+  volume mount. (Alt fix if it recurs: label the container `autoheal=false`, or point its healthcheck at
+  `:11434/api/version`.) **Lesson: a flapping `autoheal` + a bundled image's broken WebUI healthcheck can
+  silently nuke a dependency.**
+- **Ollama pulls choke on multi-stream over this network.** Any model >~3-4 GB stalls mid-download
+  (`OLLAMA_MAX_TRANSFER_STREAMS:4`, silent stall, no error) — samantha-20b died at 4.2 GB, dolphin3 at
+  3.1 GB. **Fix that works: single-stream.** Cleanest without touching the main container: run a throwaway
+  `docker run -e OLLAMA_MAX_TRANSFER_STREAMS=1 -v /mnt/user/Data/LLM:/root/.ollama ollama/ollama`, exec
+  `ollama pull` inside it (FOREGROUND — `docker exec -d`/nohup die because the image has no init to adopt
+  orphans), then `rm` it; the model lands in the shared volume. Resumes from the partial.
+- **`QUEST_COMPLETE` was a silent no-op (fixed 2026-06-09).** It was aliased to `QUEST_UPDATE`, which only
+  flipped status when `args[1]=="completed"` — but `QUEST_COMPLETE: <title>` has no `args[1]`. So the DM
+  never actually closed quests (16 piled up unclosed, no rewards). Now it's a first-class tag + fuzzy
+  title match (`_find_quest`) + the prompt tells the DM to close+reward. Quest rewards only fire if a quest
+  is CLOSED, so this also explains the "where's my loot?" gap.
+- **Dead-key class of bug keeps recurring — always grep that an `ongoing` building key is actually
+  read in `economy.py`.** Fixed twice now: kimi's first buildings (granary/workshop/market) and again
+  **"supplies"** (the stockpile was NEVER produced by the tick — Weaver's Guild/Tannery/Alchemist's Den
+  claimed a supplies bonus but it was dead). Now supplies comes from craft labour + `supplies_out` on
+  those 3 buildings.
+- **Population growth `pop_cap` was a per-tick THROTTLE, not a ceiling (fixed).** Old code did
+  `pop_cap = pop + pop_cap_bonus` recomputed each tick → capped growth to ~20/tick forever instead of
+  letting it run to a real housing limit. Fixed: growth runs at natural `pop//65` (~1.5%/tick) up to
+  `domain.get("housing_cap")` (a real ceiling). Set `housing_cap` to expand/cap population;
+  ring_housing `pop_cap_bonus` bumped 20→288 (= 36 cabins × 8 souls, honest per-district). The user
+  HARD-CAPPED pop at ~12k for now (set housing_cap = current pop). Refugees can still be added in-story
+  via `KINGDOM_CHANGE: population, +N`.
+- **iOS-PWA / desktop frontend cache:** `index.html` loads `/app.js` with NO cache-bust, so EVERY UI
+  change needs a hard-refresh (desktop ⌘⇧R) or PWA swipe-kill-reopen. Offered a `Cache-Control:
+  no-cache` middleware — still pending if the user wants it.
 - **Idle-materials RACE / dupe (fixed).** `idle.tick()` read the whole `idle_materials` blob, worked,
   then wrote it back — so a concurrent deposit/invest/`MATERIAL_SPEND` (or the background `_idle_loop`
   on another thread) got **clobbered by a stale snapshot**, "restoring" spent materials (the user's
@@ -345,3 +518,64 @@ the forgetting void.
   (fuzzy match + qty), and the **economy starvation flaw** (production now scales with pop + divine
   grace). Patched a **"tak"→"tack" hallucination** in place. **97 tests pass.** Also used a background
   poller (`scripts/watch_council.py`, since deleted) to watch the live feed for a turn then act.
+- 2026-06-04/05 — **KINGDOM-BUILDING phase, built with a 2nd agent (kimi).** Established the
+  junior(kimi)/senior(me)/PM(user) workflow + lane discipline. I added the **`KINGDOM_CHANGE`**
+  DM mechanic (DM moves the ledger from the story) and confirmed the DM already *reads* the ledger
+  every turn. kimi built the **full kingdom dashboard** (4 sub-tabs, ~37-building catalog by
+  category, prereq chains, construction projects, labor sliders, kingdom-chronicle); I **reviewed
+  it** and caught + fixed the one real gap (building **ongoing effects were dead keys** — wired them
+  into `economy.py`). Seeded the 3 pre-built buildings into the live (pre-dating) domain. Added a
+  **smart `auto_labor()`** (⚡ button, priority bands, not an even split). Then 4 polish changes:
+  **build ticks advance per play-beat**, **private companion chat uses the DM's model** (deepseek +
+  intimate routing), the **DM slides into kingdom-building** (ruler's-day rhythm), and baked in the
+  user's **COUNCIL MEETING FORMAT** (stats → advisor reports+proposals → debate → King's ruling).
+  Also fixed a recurring **frontend cache gotcha** (no cache-bust on `/app.js` → hard-refresh /
+  swipe-kill needed after any UI change; offered a `Cache-Control: no-cache` middleware, pending).
+  **112 tests pass.** Campaign is in **post-ascension free play**: a living god ruling a thriving,
+  fed kingdom.
+- 2026-06-05 — Deep **post-ascension kingdom play** + features. kimi finished the **full building
+  catalog** (37 buildings, prereqs, auto-build memorial, pre-seeded buildings) — I reviewed it (caught
+  the dead-`ongoing`-keys gap, wired them), then added **`auto_labor()`** (⚡ smart split) and **multi-
+  select suggestions** (toggle + "Do these N"). Fixed two real economy bugs: **"supplies" never produced**
+  and the **pop-growth throttle** (pop_cap was a per-tick brake, not a ceiling → now a real `housing_cap`;
+  user hard-capped pop ~12k). Built the **Gallery** (drop-a-file `frontend/gallery/` + tab + lightbox) and
+  the user generated a gorgeous **canon art codex** (city aerial, gate, Kaelrath, Kaelrath-vs-Kryoss,
+  vault, ember-glass panoply). STORY: introduced the **Empty Throne / Kryoss** void arc and brought
+  **Vaelis Thorne** (old-party "wife", tiefling void-scholar) bursting into the council — reused the
+  old corpus for her + seeded **consort-frame hooks** (Silvara/Mareth pending). Added the **ember-glass
+  sword/panoply vision** to the journal. **114 tests pass.** Next: the user is about to play Vaelis in
+  the Hearth-Hall; the Empty Throne is the live threat; the panoply is a forge-quest waiting.
+- 2026-06-06/08 — **Big features + GO-LIVE.** STORY (via injects): codified **Ascendant Wings** (flight)
+  vs **Flamewalk** (light-speed, loud) + the 3-tier divine-act cost curve; the **72h divine-steel gift
+  forge**; the **3-week coronation montage** (claimed obsidian steel + dragon's gold, panoply forged but
+  for the sun stone; deferred the **Sunken Caldera** void-trap as the next quest) → landed on **Day 82,
+  eve of coronation** (user to play the crowning). Reintroduced the old-party "wives" as consort hooks
+  (Vaelis ARRIVED & is tracked; Silvara/Mareth pending). ENGINE: **dynamic building catalog +
+  `BUILDING_PROPOSE`**, **building upgrades** (`upgrades_from`/⬆ button), **Crews & Teams** system
+  (`CREW_SET`, Labor-tab editor, DM-visible) + seeded 7 crews/3 buildings from the council's recital,
+  a **Gallery** tab (drop-a-file canon art codex), **multi-select play suggestions**, **auto_labor**,
+  **supplies fix**, **pop-growth `housing_cap` ceiling** (user hard-capped ~12k). **MIGRATED TO
+  funiserver** with ~30s downtime (parallel build/test + tiny DB cutover), retired old origins, pulled
+  models, wrote one-command **`scripts/deploy.sh`**, added **no-cache headers** + **iOS safe-area mobile
+  fixes**. **117 tests pass.** Next: PLAY THE CORONATION on funiserver:8000, then the Sunken Caldera.
+- 2026-06-08/09 — **Post-go-live polish + repo.** Mobile: **suggestions auto-fold when scrolling up to
+  read** (return at bottom / on new beat). Made the **feed DB-backed** (`broker.recent` → `meta.feed_recent`
+  + `restore_feed()` in lifespan) so injected/montage beats survive restarts/deploys, not just refreshes
+  (verified: log says `restored N feed beats from disk`); had to RE-INJECT the coronation montage under the
+  new code so it'd persist. Pushed source to a **PRIVATE GitHub repo `todell725/EHR`** — safety-checked the
+  staging (caught that `/data/*.db` missed `data/backups|snapshots/`; switched to ignoring all of `/data/`;
+  confirmed `.env` + DBs never left the Mac). **118 tests pass.** Still next: the user is about to PLAY THE
+  CORONATION (Day 82) on funiserver:8000; then the Sunken-Caldera sun-stone quest + the Empty Throne arc.
+- 2026-06-09 — **Two more code reviews triaged + acted (trust boundary hardened); quests fixed; Ollama saga.**
+  Reviews → adversarial mechanics suite (found malformed-tag→`applied` bug), inject-through-`apply_mechanics`
+  (split-brain fix), mid-stream narration recovery (`narrative_reset`), faction clamps, reembed script,
+  condition dedup, RAG `to_thread`; pushed back on ORM/Alembic/SQL-fstring critiques with evidence.
+  **Quests:** pruned 20→2 active (kept Forge the Sword of Legends + District Spokespersons), found+fixed
+  **`QUEST_COMPLETE` silent no-op**, and **paid a 16-quest back-bounty** (+6,300 XP → L7-eligible, the **Seal
+  of the Sixteen Deeds**, +16k treasury) via the inject-mechanics path. Added the quest **"↪ Pick this up"**
+  button. **Big Ollama debugging:** "LLM unavailable: Connection error" traced to the **OllamaUI bundled
+  image's dead WebUI healthcheck + autoheal recycling the container every ~2.5 min**; user swapped to plain
+  `ollama/ollama` (no healthcheck), models persisted via `/mnt/user/Data/LLM`; intimate model swapped to
+  **`dolphin3:8b`** (the 20B wouldn't pull — multi-stream network choke; single-stream throwaway container
+  worked). **156 tests pass.** Verified all 4 model paths generate + the container is stable. STILL NEXT:
+  PLAY THE CORONATION (now Day 83, coronation morning) on funiserver:8000; then the Sunken Caldera / Empty Throne.

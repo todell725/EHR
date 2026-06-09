@@ -148,6 +148,8 @@ async def retrieve(
     )
     if not rows:
         return []
+    if len(rows) > 20000:  # brute-force cosine is O(N) — fine for now, plan an index past here
+        logger.warning("RAG scanning %d chunks; consider a vector index or tighter era filter.", len(rows))
 
     def _rank() -> list[dict]:
         # cosine = normalized dot product

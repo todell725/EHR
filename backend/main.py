@@ -74,12 +74,10 @@ app = FastAPI(title="EmberHeart Reborn", version="0.1.0", lifespan=lifespan)
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    """Fail loudly with a clean envelope instead of leaking a stack trace."""
+    """Log the full error server-side; return a generic envelope (no internals/SQL/paths
+    leaked to the client). Check the container logs for the actual exception."""
     logger.exception("unhandled error on %s", request.url.path)
-    return JSONResponse(
-        {"detail": str(exc), "type": exc.__class__.__name__, "path": request.url.path},
-        status_code=500,
-    )
+    return JSONResponse({"detail": "internal server error"}, status_code=500)
 
 
 # ------------------------------------------------------- always-fresh static assets

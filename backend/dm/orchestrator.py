@@ -98,17 +98,20 @@ async def _flesh_npc(nid: str) -> None:
     if not npc:
         return
     try:
-        raw = await get_llm().chat(
-            [
-                {"role": "system", "content":
-                    "Return ONLY a JSON object with keys: pronouns (e.g. 'she/her', "
-                    "'he/him', 'they/them'), personality (array of 3-5 short traits), "
-                    "secret, want, need, fear, bio (1-2 sentences). Dark frontier fantasy tone."},
-                {"role": "user", "content":
-                    f"Flesh out this EmberHeart origins-era NPC: name={npc['name']}, "
-                    f"role={npc.get('role','')}."},
-            ],
-            mode="adjudication", response_format={"type": "json_object"},
+        raw = await asyncio.wait_for(
+            get_llm().chat(
+                [
+                    {"role": "system", "content":
+                        "Return ONLY a JSON object with keys: pronouns (e.g. 'she/her', "
+                        "'he/him', 'they/them'), personality (array of 3-5 short traits), "
+                        "secret, want, need, fear, bio (1-2 sentences). Dark frontier fantasy tone."},
+                    {"role": "user", "content":
+                        f"Flesh out this EmberHeart origins-era NPC: name={npc['name']}, "
+                        f"role={npc.get('role','')}."},
+                ],
+                mode="adjudication", response_format={"type": "json_object"},
+            ),
+            timeout=settings.narration_timeout,   # decorative call must never hang the turn
         )
         d = json.loads(raw[raw.find("{"): raw.rfind("}") + 1])
         upd: dict = {"id": nid}
