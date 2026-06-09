@@ -110,7 +110,8 @@ Machine-readable tags ONLY — no prose. One per line. Use only these tags:
   NPC_DISPOSITION_CHANGE: <npc>, <delta>
   FACTION_REP_CHANGE: <faction>, <delta>
   QUEST_ADD: <title>, <desc?>
-  QUEST_UPDATE: <title>, <status-or-note>
+  QUEST_UPDATE: <title>, <progress-note>
+  QUEST_COMPLETE: <title>   (CLOSE a quest the moment its goal is met — do NOT leave finished quests sitting active. Pay it out the same turn with a fitting XP_GRANT and/or ITEM_ADD reward.)
   WORLD_EVENT: <name>, <status>
   WORLD_HOOK: <a detail planted now that should pay off later>
   HOOK_RESOLVE: <hook id, or a few words of an open thread that just paid off>

@@ -46,3 +46,21 @@ def test_condition_add_dedupes(fresh_db):
                                             raw=f"CONDITION_ADD: Kaelrath, Exhaustion, {rounds}")])
     conds = state.get_pc("PC-h")["conditions"]
     assert conds == [{"name": "Exhaustion", "rounds": 2}]   # one entry, latest duration
+
+
+# DM quest closure: QUEST_COMPLETE must actually close + fuzzy-match the title
+def test_quest_complete_closes_quest(fresh_db):
+    mechanics.apply_mechanics([Mechanic(tag="QUEST_ADD", args=["Slay the Frost Wyrm", "kill it"],
+                                        raw="QUEST_ADD: Slay the Frost Wyrm, kill it")])
+    # the model emits the natural tag with NO status arg — used to be a silent no-op
+    mechanics.apply_mechanics([Mechanic(tag="QUEST_COMPLETE", args=["Slay the Frost Wyrm"],
+                                        raw="QUEST_COMPLETE: Slay the Frost Wyrm")])
+    q = [x for x in state.list_quests() if x["title"] == "Slay the Frost Wyrm"][0]
+    assert q["status"] == "completed"
+
+
+def test_quest_complete_fuzzy_title(fresh_db):
+    mechanics.apply_mechanics([Mechanic(tag="QUEST_ADD", args=["The Obsidian Spine"], raw="QUEST_ADD: The Obsidian Spine")])
+    # DM paraphrases the title -> unique-substring match still closes it
+    mechanics.apply_mechanics([Mechanic(tag="QUEST_COMPLETE", args=["Obsidian Spine"], raw="QUEST_COMPLETE: Obsidian Spine")])
+    assert [x for x in state.list_quests() if x["title"] == "The Obsidian Spine"][0]["status"] == "completed"

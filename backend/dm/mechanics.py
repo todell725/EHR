@@ -129,7 +129,7 @@ class MechanicsResult(dict):
 KNOWN_TAGS = {
     "HP_CHANGE", "ENEMY_HP", "ROLL_REQUEST", "SAVE_REQUEST", "CONDITION_ADD",
     "CONDITION_REMOVE", "ITEM_ADD", "ITEM_REMOVE", "XP_GRANT",
-    "NPC_DISPOSITION_CHANGE", "FACTION_REP_CHANGE", "QUEST_ADD", "QUEST_UPDATE",
+    "NPC_DISPOSITION_CHANGE", "FACTION_REP_CHANGE", "QUEST_ADD", "QUEST_UPDATE", "QUEST_COMPLETE",
     "WORLD_HOOK", "WORLD_EVENT", "NPC_SPAWN", "NPC_STATUS", "TIME_ADVANCE",
     "COMBAT_START", "COMBAT_END", "SCENE_SET", "HOOK_RESOLVE", "PARTY_JOIN", "SKILL_XP",
     "JOURNAL", "MATERIAL_GAIN", "MATERIAL_SPEND", "MOUNT_TAME", "KINGDOM_CHANGE",
@@ -168,6 +168,30 @@ def _coerce_int(s: str | None, default: int = 0) -> int:
     return int(m.group()) if m else default
 
 
+_QUEST_STATUS = {
+    "complete": "completed", "completed": "completed", "done": "completed",
+    "finished": "completed", "closed": "completed", "close": "completed",
+    "fail": "failed", "failed": "failed",
+    "active": "active", "ongoing": "active", "reopen": "active",
+}
+
+
+def _find_quest(title: str) -> dict | None:
+    """Match a quest by title — exact (case-insensitive) first, then a UNIQUE substring
+    match so a paraphrased title still resolves instead of silently no-opping."""
+    t = (title or "").strip()
+    if not t:
+        return None
+    row = db.query_one("SELECT * FROM quests WHERE title = ? COLLATE NOCASE", [t])
+    if row:
+        return row
+    rows = db.query(
+        "SELECT * FROM quests WHERE title LIKE ? COLLATE NOCASE AND status != 'completed'",
+        [f"%{t}%"],
+    )
+    return rows[0] if len(rows) == 1 else None
+
+
 # Synonyms the model invents -> canonical tags. (Damage/heal handled separately so the
 # sign is right.) Add to this map whenever a useful unknown tag keeps showing up.
 _ALIASES = {
@@ -183,7 +207,9 @@ _ALIASES = {
     "REPUTATION": "FACTION_REP_CHANGE", "REP_CHANGE": "FACTION_REP_CHANGE",
     "REPUTATION_CHANGE": "FACTION_REP_CHANGE",
     "QUEST": "QUEST_ADD", "NEW_QUEST": "QUEST_ADD", "ADD_QUEST": "QUEST_ADD", "QUEST_START": "QUEST_ADD",
-    "QUEST_COMPLETE": "QUEST_UPDATE", "QUEST_PROGRESS": "QUEST_UPDATE", "UPDATE_QUEST": "QUEST_UPDATE",
+    "QUEST_PROGRESS": "QUEST_UPDATE", "UPDATE_QUEST": "QUEST_UPDATE",
+    "QUEST_DONE": "QUEST_COMPLETE", "COMPLETE_QUEST": "QUEST_COMPLETE",
+    "FINISH_QUEST": "QUEST_COMPLETE", "QUEST_FINISH": "QUEST_COMPLETE", "QUEST_CLOSE": "QUEST_COMPLETE",
     "ROLL": "ROLL_REQUEST", "CHECK": "ROLL_REQUEST", "SKILL_CHECK": "ROLL_REQUEST",
     "ABILITY_CHECK": "ROLL_REQUEST", "REQUEST_ROLL": "ROLL_REQUEST",
     "SAVE": "SAVE_REQUEST", "SAVING_THROW": "SAVE_REQUEST", "SAVE_THROW": "SAVE_REQUEST",
@@ -411,13 +437,24 @@ def _dispatch(tag, args, pcs, acting, applied, rolls, result):  # noqa: C901 - f
                             "description": args[1] if len(args) > 1 else ""})
         applied.append(f"new quest: {args[0]}")
 
-    elif tag == "QUEST_UPDATE" and args:
-        row = db.query_one("SELECT * FROM quests WHERE title = ? COLLATE NOCASE", [args[0]])
+    elif tag == "QUEST_COMPLETE" and args:
+        row = _find_quest(args[0])
         if row:
-            note = args[1] if len(args) > 1 else ""
-            if note.lower() in ("completed", "failed", "active"):
-                state.upsert_quest({"id": row["id"], "status": note.lower()})
-            applied.append(f"quest '{args[0]}' updated: {note}")
+            state.upsert_quest({"id": row["id"], "status": "completed"})
+            applied.append(f"quest completed: {row['title']}")
+        else:
+            result["notes"].append(f"QUEST_COMPLETE: no open quest matching '{args[0]}'")
+
+    elif tag == "QUEST_UPDATE" and args:
+        row = _find_quest(args[0])
+        if row:
+            note = (args[1] if len(args) > 1 else "").strip()
+            status = _QUEST_STATUS.get(note.lower())
+            if status:
+                state.upsert_quest({"id": row["id"], "status": status})
+            applied.append(f"quest '{row['title']}' {('-> ' + status) if status else 'updated: ' + note}")
+        else:
+            result["notes"].append(f"QUEST_UPDATE: no quest matching '{args[0]}'")
 
     elif tag == "WORLD_HOOK" and args:
         # rejoin the whole description — the DM uses commas inside it, which used to
