@@ -389,6 +389,15 @@ async def stream_turn(action: str, pc_id: str | None = None) -> AsyncIterator[di
         except Exception as exc:  # noqa: BLE001
             logger.warning("intimate fallback failed: %s", exc)
 
+    # guard: a choking model (especially a small fallback fed a huge FULL_CONTEXT prompt) can
+    # emit empty or junk narration like "###". NEVER commit that as a beat — it corrupts the
+    # scene and burns the turn. Fail cleanly so the player just retries (deepseek usually recovers).
+    if len((parsed.narrative or "").strip()) < 20:
+        logger.warning("rejecting garbled narration (%r) from %s", (parsed.narrative or "")[:40], used_model)
+        yield {"type": "error",
+               "message": "The Weaver's words came out garbled (model hiccup) — try that action again."}
+        return
+
     # apply mechanics deterministically
     mech = mechanics.apply_mechanics(parsed.mechanics, acting_pc_id=pc_id)
 
