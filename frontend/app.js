@@ -173,7 +173,10 @@ function Play({ onStateChange, onCombat, toast, reportConn, onModel }) {
   const sendPicks = () => {
     const texts = picks.map((i) => suggestions[i]?.text).filter(Boolean);
     if (!texts.length) return;
-    send(texts.length === 1 ? texts[0] : "I'll do these: " + texts.join("; "));
+    send(texts.length === 1
+      ? texts[0]
+      : "Weave these into ONE fluid, continuous beat — a single blended action, not separate "
+        + "numbered steps: " + texts.join("; "));
   };
 
   const startSession = async () => {
