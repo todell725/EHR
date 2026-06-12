@@ -149,7 +149,9 @@ def build_scene_block(recent_turns: list[dict] | None = None) -> str:
 
     if present:
         lines.append("NPCs present: " + ", ".join(
-            f"{n['name']} ({n.get('role','')})".strip() for n in present
+            (f"{n['name']} ({n.get('role','')})".strip()
+             + (f" [{n['pronouns']}]" if n.get("pronouns") else ""))
+            for n in present
         ))
 
     # the camp's gathered stores — so the DM knows what's on hand and can let the player
