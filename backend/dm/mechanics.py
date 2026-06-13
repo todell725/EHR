@@ -70,7 +70,7 @@ def _ensure_npc(name: str, result: dict) -> dict | None:
     name = (name or "").strip()
     if not name:
         return None
-    npc = state.find_npc_by_name(name)
+    npc = state.find_npc(name)  # id-or-name, with first-name fallback — only stub a true miss
     if npc:
         return npc
     nid = "NPC-" + uuid.uuid4().hex[:8]
@@ -462,10 +462,17 @@ def _dispatch(tag, args, pcs, acting, applied, rolls, result):  # noqa: C901 - f
                 notes.append(f"ITEM_REMOVE: '{item}' not in {pc['name']}'s pack — nothing removed")
 
     elif tag == "NPC_DISPOSITION_CHANGE" and len(args) >= 2:
-        npc = _ensure_npc(args[0], result)  # auto-register if the DM names someone new
+        # resolve only — NEVER fabricate. A disposition tag aimed at a name/id that doesn't
+        # resolve used to mint a blank stub that silently stole a companion's bond (the
+        # Vaelis-at-8 bug). Now a miss is a visible no-op; only NPC_SPAWN creates NPCs.
+        npc = state.find_npc(args[0])
         if npc and acting:
             val = state.set_npc_disposition(npc["id"], acting["id"], _coerce_int(args[1]))
             applied.append(f"{npc['name']} disposition -> {val}")
+        elif not npc:
+            result["notes"].append(
+                f"NPC_DISPOSITION_CHANGE: no known NPC matching '{args[0]}' "
+                f"(use NPC_SPAWN first to introduce them) — skipped")
 
     elif tag == "FACTION_REP_CHANGE" and len(args) >= 2 and acting:
         val = state.change_faction_rep(args[0], acting["id"], _coerce_int(args[1]))
@@ -531,10 +538,13 @@ def _dispatch(tag, args, pcs, acting, applied, rolls, result):  # noqa: C901 - f
             applied.append(f"NPC spawned: {args[0]}")
 
     elif tag == "NPC_STATUS" and len(args) >= 2:
-        npc = _ensure_npc(args[0], result)
+        npc = state.find_npc(args[0])  # resolve only — never fabricate a stub from a miss
         if npc:
             state.set_npc_status(npc["id"], args[1])
             applied.append(f"{npc['name']} is now {args[1]}")
+        else:
+            result["notes"].append(
+                f"NPC_STATUS: no known NPC matching '{args[0]}' (use NPC_SPAWN first) — skipped")
 
     elif tag == "COUNCIL_APPOINT" and args:
         # seat an NPC on the King's council with a portfolio (their domain of counsel).
@@ -548,13 +558,13 @@ def _dispatch(tag, args, pcs, acting, applied, rolls, result):  # noqa: C901 - f
             applied.append(f"{npc['name']} seated on the council ({portfolio})")
 
     elif tag == "COUNCIL_DISMISS" and args:
-        npc = state.find_npc_by_name(args[0])
+        npc = state.find_npc(args[0])
         if npc:
             state.set_npc_council(npc["id"], "")
             applied.append(f"{npc['name']} stepped down from the council")
 
     elif tag == "PARTY_JOIN" and args:
-        npc = state.find_npc_by_name(args[0])
+        npc = state.find_npc(args[0])
         if npc and npc.get("status") != "party":
             pc = state.promote_npc_to_party(npc["id"])
             applied.append(f"{npc['name']} joins the party as a companion" if pc

@@ -87,7 +87,9 @@ def test_item_add_rejects_bare_number(fresh_db):
     assert state.get_pc("PC-1")["inventory"] == []  # junk number not added
 
 
-def test_disposition_auto_registers_npc(fresh_db):
+def test_disposition_does_not_fabricate_npc(fresh_db):
+    # NEW CONTRACT: a disposition tag NEVER mints an NPC (that was the Vaelis-at-8 bug).
+    # An unknown target is a visible no-op; the NPC must already exist (via NPC_SPAWN).
     from backend.core import state
     state.upsert_pc({"id": "PC-1", "name": "Ash", "hp": 10, "max_hp": 10, "ac": 10})
     assert state.find_npc_by_name("Talmarr") is None
@@ -96,10 +98,17 @@ def test_disposition_auto_registers_npc(fresh_db):
                   raw="NPC_DISPOSITION_CHANGE: Talmarr, +5 (trust)")],
         acting_pc_id="PC-1",
     )
-    npc = state.find_npc_by_name("Talmarr")
-    assert npc is not None                       # auto-registered
-    assert npc["disposition"]["PC-1"] == 5       # and the change applied
-    assert npc["id"] in res["spawned"]           # queued for dossier fill
+    assert state.find_npc_by_name("Talmarr") is None     # no stub fabricated
+    assert any("no known NPC" in n for n in res["notes"])
+
+    # once she exists, the same tag lands on the real record
+    state.upsert_npc({"id": "NPC-tal", "name": "Talmarr"})
+    mechanics.apply_mechanics(
+        [Mechanic(tag="NPC_DISPOSITION_CHANGE", args=["Talmarr", "+5 (trust)"],
+                  raw="NPC_DISPOSITION_CHANGE: Talmarr, +5 (trust)")],
+        acting_pc_id="PC-1",
+    )
+    assert state.find_npc_by_name("Talmarr")["disposition"]["PC-1"] == 5
 
 
 def test_scene_set_updates_world(fresh_db):

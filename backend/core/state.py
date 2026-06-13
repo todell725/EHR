@@ -142,10 +142,39 @@ def get_npc(npc_id: str) -> dict | None:
 
 
 def find_npc_by_name(name: str) -> dict | None:
-    return db.row_to_dict(
-        db.query_one("SELECT * FROM npcs WHERE name = ? COLLATE NOCASE", [name]),
-        _NPC_JSON,
+    name = (name or "").strip()
+    if not name:
+        return None
+    # 1) exact (case-insensitive) — the common, unambiguous path
+    row = db.query_one("SELECT * FROM npcs WHERE name = ? COLLATE NOCASE", [name])
+    if row:
+        return db.row_to_dict(row, _NPC_JSON)
+    # 2) first-name fallback: beats use a short name ("Vaelis") for a character whose full
+    # record is "Vaelis Thorne" (or vice-versa). Resolve to the UNIQUE first-token match so
+    # we never spawn a duplicate stub that silently steals disposition. Bail if ambiguous.
+    first = name.split()[0].lower()
+    cands = db.query(
+        "SELECT * FROM npcs WHERE lower(name) = ? OR lower(name) LIKE ?",
+        [first, first + " %"],
     )
+    if len(cands) == 1:
+        return db.row_to_dict(cands[0], _NPC_JSON)
+    return None
+
+
+def find_npc(ref: str) -> dict | None:
+    """Resolve an NPC by a stable id (NPC-...) OR by name. The mechanics layer uses this
+    so the DM can target a character by the [NPC-id] we inject in the prompt or by name —
+    whichever it reaches for — without ever guessing. Returns None if nothing resolves
+    (callers must NOT fabricate a stub from a miss)."""
+    ref = (ref or "").strip()
+    if not ref:
+        return None
+    if ref.lower().startswith("npc-"):
+        row = db.query_one("SELECT * FROM npcs WHERE id = ? COLLATE NOCASE", [ref])
+        if row:
+            return db.row_to_dict(row, _NPC_JSON)
+    return find_npc_by_name(ref)
 
 
 def list_npcs(

@@ -124,6 +124,51 @@ def test_council_appoint_aliases_route(fresh_db):
     assert [n["name"] for n in state.list_council()] == ["Aldra"]
 
 
+# A short/first name must resolve to the full-named NPC, never spawn a duplicate stub
+def test_find_npc_first_name_resolves_to_full(fresh_db):
+    state.upsert_npc({"id": "NPC-v", "name": "Vaelis Thorne", "disposition": {"PC-01": 182}})
+    found = state.find_npc_by_name("Vaelis")          # the short name a beat would use
+    assert found and found["id"] == "NPC-v"
+    assert found["disposition"]["PC-01"] == 182
+
+
+def test_ensure_npc_does_not_stub_a_known_companion(fresh_db):
+    state.upsert_pc({"id": "PC-01", "name": "Kaelrath Emberhide", "is_player": 1})
+    state.upsert_npc({"id": "NPC-v", "name": "Vaelis Thorne", "disposition": {"PC-01": 182}})
+    # a disposition change addressed to "Vaelis" must land on the real record, not a stub
+    mechanics.apply_mechanics([Mechanic(tag="NPC_DISPOSITION_CHANGE", args=["Vaelis", "+5"],
+                                        raw="NPC_DISPOSITION_CHANGE: Vaelis, +5")],
+                              acting_pc_id="PC-01")
+    vaelises = [n for n in state.all_npcs() if n["name"].lower().startswith("vaelis")]
+    assert len(vaelises) == 1                          # no stub spawned
+    assert vaelises[0]["disposition"]["PC-01"] == 187  # 182 + 5, on the real record
+
+
+def test_find_npc_ambiguous_returns_none(fresh_db):
+    # two characters sharing a first name -> don't guess
+    state.upsert_npc({"id": "NPC-a", "name": "Vaelis Thorne"})
+    state.upsert_npc({"id": "NPC-b", "name": "Vaelis Dunmar"})
+    assert state.find_npc_by_name("Vaelis") is None
+
+
+def test_find_npc_resolves_by_id(fresh_db):
+    # even when the first name is ambiguous, the injected [id=...] resolves exactly
+    state.upsert_npc({"id": "NPC-vaelis", "name": "Vaelis Thorne"})
+    state.upsert_npc({"id": "NPC-other", "name": "Vaelis Dunmar"})
+    assert state.find_npc("NPC-vaelis")["name"] == "Vaelis Thorne"
+    assert state.find_npc("npc-vaelis")["name"] == "Vaelis Thorne"  # case-insensitive
+
+
+def test_disposition_on_unknown_name_spawns_no_stub(fresh_db):
+    state.upsert_pc({"id": "PC-01", "name": "Kaelrath Emberhide", "is_player": 1})
+    before = len(state.all_npcs())
+    res = mechanics.apply_mechanics([Mechanic(tag="NPC_DISPOSITION_CHANGE", args=["Nobody", "+40"],
+                                              raw="NPC_DISPOSITION_CHANGE: Nobody, +40")],
+                                    acting_pc_id="PC-01")
+    assert len(state.all_npcs()) == before          # the phantom is never minted
+    assert any("no known NPC" in n for n in res["notes"])
+
+
 def test_council_dismiss_clears_seat(fresh_db):
     state.upsert_npc({"id": "NPC-b", "name": "Bheric", "role": "Forgemaster"})
     mechanics.apply_mechanics([Mechanic(tag="COUNCIL_APPOINT", args=["Bheric", "the forge"],

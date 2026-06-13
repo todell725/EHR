@@ -64,11 +64,13 @@ def build_full_context(recent_turns: list[dict] | None = None) -> str:
     npcs = [n for n in state.all_npcs(era="present")
             if n.get("status") not in ("party", "dead", "gone")]
     if npcs:
-        lines.append("\n--- NPC ROSTER ---")
+        lines.append("\n--- NPC ROSTER (in [MECHANICS], target anyone here by name OR by the "
+                     "[id=...] shown — using the id is exact and never mis-resolves) ---")
         for n in npcs:
             head = f"{n['name']} ({n.get('role','')})".strip()
             if n.get("pronouns"):
                 head += f" [{n['pronouns']}]"
+            head += f" [id={n['id']}]"
             bits = [head]
             if n.get("disposition"):
                 bits.append(f"disposition {n['disposition']}")
@@ -150,7 +152,8 @@ def build_scene_block(recent_turns: list[dict] | None = None) -> str:
     if present:
         lines.append("NPCs present: " + ", ".join(
             (f"{n['name']} ({n.get('role','')})".strip()
-             + (f" [{n['pronouns']}]" if n.get("pronouns") else ""))
+             + (f" [{n['pronouns']}]" if n.get("pronouns") else "")
+             + f" [id={n['id']}]")
             for n in present
         ))
 
@@ -251,8 +254,14 @@ def build_scene_block(recent_turns: list[dict] | None = None) -> str:
     lines += [_fmt_pc(pc) for pc in heroes] or ["(none created yet)"]
     if companions:
         lines.append("\n--- PARTY COMPANIONS (YOU the DM voice & act them; the player only "
-                     "manages their sheets) ---")
-        lines += [_fmt_pc(pc) for pc in companions]
+                     "manages their sheets. For disposition/status tags, target the [id=...] "
+                     "shown — it points at their character record) ---")
+        for pc in companions:
+            line = _fmt_pc(pc)
+            onpc = state.find_npc_by_name(pc["name"])
+            if onpc:
+                line += f"  [id={onpc['id']}]"
+            lines.append(line)
 
     if recent_turns:
         lines.append("\n--- RECENT HISTORY (most recent last) ---")
