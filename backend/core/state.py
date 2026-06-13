@@ -188,6 +188,22 @@ def set_npc_status(npc_id: str, status: str) -> None:
     db.execute("UPDATE npcs SET status = ? WHERE id = ?", [status, npc_id])
 
 
+def set_npc_council(npc_id: str, portfolio: str) -> None:
+    """Seat (non-empty portfolio) or dismiss ('') an NPC from the King's council."""
+    db.execute("UPDATE npcs SET council = ? WHERE id = ?", [portfolio or "", npc_id])
+
+
+def list_council() -> list[dict]:
+    """Seated councillors (data-driven roster), excluding the dead/departed."""
+    return [
+        db.row_to_dict(r, _NPC_JSON)
+        for r in db.query(
+            "SELECT * FROM npcs WHERE council != '' "
+            "AND status NOT IN ('dead', 'gone') ORDER BY name"
+        )
+    ]
+
+
 # ---------------------------------------------------------------------- factions
 def list_factions() -> list[dict]:
     return [

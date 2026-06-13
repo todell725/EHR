@@ -153,7 +153,7 @@ KNOWN_TAGS = {
     "WORLD_HOOK", "WORLD_EVENT", "NPC_SPAWN", "NPC_STATUS", "TIME_ADVANCE",
     "COMBAT_START", "COMBAT_END", "SCENE_SET", "HOOK_RESOLVE", "PARTY_JOIN", "SKILL_XP",
     "JOURNAL", "MATERIAL_GAIN", "MATERIAL_SPEND", "MOUNT_TAME", "KINGDOM_CHANGE",
-    "BUILDING_PROPOSE", "CREW_SET",
+    "BUILDING_PROPOSE", "CREW_SET", "COUNCIL_APPOINT", "COUNCIL_DISMISS",
 }
 
 _BUILDING_CATEGORIES = {"defense", "divine", "leadership", "sustenance", "industry",
@@ -266,6 +266,11 @@ _ALIASES = {
     "BUILDING_ADD": "BUILDING_PROPOSE", "ADD_BUILDING": "BUILDING_PROPOSE",
     "CREW": "CREW_SET", "CREW_ADD": "CREW_SET", "TEAM": "CREW_SET",
     "TEAM_ADD": "CREW_SET", "TEAM_SET": "CREW_SET",
+    "APPOINT": "COUNCIL_APPOINT", "COUNCIL_ADD": "COUNCIL_APPOINT", "COUNCIL_SEAT": "COUNCIL_APPOINT",
+    "PROMOTE_TO_COUNCIL": "COUNCIL_APPOINT", "COUNCIL_PROMOTE": "COUNCIL_APPOINT",
+    "ADVISOR_ADD": "COUNCIL_APPOINT", "NAME_ADVISOR": "COUNCIL_APPOINT", "APPOINT_COUNCIL": "COUNCIL_APPOINT",
+    "DISMISS": "COUNCIL_DISMISS", "COUNCIL_REMOVE": "COUNCIL_DISMISS", "COUNCIL_STEP_DOWN": "COUNCIL_DISMISS",
+    "REMOVE_ADVISOR": "COUNCIL_DISMISS", "COUNCIL_DEMOTE": "COUNCIL_DISMISS",
 }
 _DAMAGE_TAGS = {"DAMAGE", "TAKE_DAMAGE", "HP_LOSS", "HURT", "WOUND", "DAMAGE_TAKEN"}
 _HEAL_TAGS = {"HEAL", "HP_GAIN", "HP_RESTORE", "RESTORE", "RECOVER", "HEALING"}
@@ -530,6 +535,23 @@ def _dispatch(tag, args, pcs, acting, applied, rolls, result):  # noqa: C901 - f
         if npc:
             state.set_npc_status(npc["id"], args[1])
             applied.append(f"{npc['name']} is now {args[1]}")
+
+    elif tag == "COUNCIL_APPOINT" and args:
+        # seat an NPC on the King's council with a portfolio (their domain of counsel).
+        # format: COUNCIL_APPOINT: <name>, <portfolio...>. Data-driven so the roster
+        # survives any narration model — the appointment lives in state, not just prose.
+        npc = _ensure_npc(args[0], result)
+        if npc:
+            portfolio = ", ".join(a.strip() for a in args[1:] if a.strip()) or (
+                npc.get("role") or "the King's counsel")
+            state.set_npc_council(npc["id"], portfolio)
+            applied.append(f"{npc['name']} seated on the council ({portfolio})")
+
+    elif tag == "COUNCIL_DISMISS" and args:
+        npc = state.find_npc_by_name(args[0])
+        if npc:
+            state.set_npc_council(npc["id"], "")
+            applied.append(f"{npc['name']} stepped down from the council")
 
     elif tag == "PARTY_JOIN" and args:
         npc = state.find_npc_by_name(args[0])

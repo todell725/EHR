@@ -83,3 +83,32 @@ def test_item_add_no_pc_keeps_full_name(fresh_db):
     mechanics.apply_mechanics([Mechanic(tag="ITEM_ADD", args=["Talmarr's locket", "1"],
                                         raw="ITEM_ADD: Talmarr's locket, 1")])
     assert state.get_pc("PC-1")["inventory"] == [{"item": "Talmarr's locket", "qty": 1}]
+
+
+# Council appointments must land in structured state so the roster survives any model
+def test_council_appoint_seats_npc_with_portfolio(fresh_db):
+    state.upsert_npc({"id": "NPC-c", "name": "Corin", "role": "Foreman"})
+    mechanics.apply_mechanics([Mechanic(tag="COUNCIL_APPOINT",
+                                        args=["Corin", "the hearth-channels", "industry"],
+                                        raw="COUNCIL_APPOINT: Corin, the hearth-channels, industry")])
+    seated = state.list_council()
+    assert [n["name"] for n in seated] == ["Corin"]
+    assert seated[0]["council"] == "the hearth-channels, industry"
+
+
+def test_council_appoint_aliases_route(fresh_db):
+    state.upsert_npc({"id": "NPC-a", "name": "Aldra", "role": "Scout"})
+    # the model's natural phrasing ("APPOINT") must canonicalize to COUNCIL_APPOINT
+    mechanics.apply_mechanics([Mechanic(tag="APPOINT", args=["Aldra", "the borderlands"],
+                                        raw="APPOINT: Aldra, the borderlands")])
+    assert [n["name"] for n in state.list_council()] == ["Aldra"]
+
+
+def test_council_dismiss_clears_seat(fresh_db):
+    state.upsert_npc({"id": "NPC-b", "name": "Bheric", "role": "Forgemaster"})
+    mechanics.apply_mechanics([Mechanic(tag="COUNCIL_APPOINT", args=["Bheric", "the forge"],
+                                        raw="COUNCIL_APPOINT: Bheric, the forge")])
+    assert state.list_council()
+    mechanics.apply_mechanics([Mechanic(tag="COUNCIL_DISMISS", args=["Bheric"],
+                                        raw="COUNCIL_DISMISS: Bheric")])
+    assert state.list_council() == []

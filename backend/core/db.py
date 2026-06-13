@@ -22,7 +22,7 @@ from typing import Any, Iterable
 from backend.core.config import settings
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
-SCHEMA_VERSION = 8  # bump when adding a MIGRATIONS entry
+SCHEMA_VERSION = 9  # bump when adding a MIGRATIONS entry
 
 # Forward-only migrations applied after the (idempotent) base schema. Each entry is
 # (target_user_version, sql). Add new ones here; never edit shipped entries.
@@ -53,6 +53,9 @@ MIGRATIONS: list[tuple[int, str]] = [
         "speed INTEGER NOT NULL DEFAULT 60, bond INTEGER NOT NULL DEFAULT 1, "
         "traits TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'active', "
         "active INTEGER NOT NULL DEFAULT 1, notes TEXT NOT NULL DEFAULT '');"),
+    # v9: council seat — an NPC's portfolio if they sit on the King's council ('' = not seated).
+    # Makes the council roster data-driven so appointments survive any narration model.
+    (9, "ALTER TABLE npcs ADD COLUMN council TEXT NOT NULL DEFAULT '';"),
 ]
 
 _local = threading.local()

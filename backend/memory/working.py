@@ -186,12 +186,30 @@ def build_scene_block(recent_turns: list[dict] | None = None) -> str:
                 lines.append(
                     f"CREWS/TEAMS (the ruler's current assignments — honor these numbers, react to "
                     f"changes he makes, and use CREW_SET when the council stands up a new team): {crew_str}.")
+            # The council roster is DATA-DRIVEN (from npcs.council) so appointments the
+            # King makes in play survive any narration model — fall back to the founding
+            # four only if nobody is seated yet. Queen Talmarr is rendered separately as
+            # co-ruler, so she is not seated as an ordinary councillor.
+            council = state.list_council()
+            if council:
+                advisor_names = ", ".join(c["name"] for c in council)
+                advisor_bullets = "".join(
+                    f"   • {c['name']} → {c.get('council') or c.get('role', '')}\n"
+                    for c in council)
+            else:
+                advisor_names = ("Warden Renn, Hearthkeeper Orina, Forgemaster Bheric, "
+                                 "Loremaster Sella")
+                advisor_bullets = (
+                    "   • Warden Renn → defense, the watch, the walls, the army, border threats\n"
+                    "   • Hearthkeeper Orina → food, health, morale, the commonfolk's needs, rations\n"
+                    "   • Forgemaster Bheric → building, industry, the forge, construction, resources\n"
+                    "   • Loremaster Sella → lore, omens, the deep past, ley/void threats, the EmberHeart\n")
             lines.append(
                 "--- KINGDOM-BUILDING MODE (the arc has shifted from questing to RULERSHIP) ---\n"
                 "The hero is now the God-Ascendant Flamekeeper, a king ruling EmberHeart. Slide the "
                 "story OUT of lone gritty questing and INTO running a kingdom. Frame the rhythm of a "
                 "ruler's day: the King WAKES, holds a COUNCIL MEETING with his queen Talmarr and his "
-                "advisors (Warden Renn, Hearthkeeper Orina, Forgemaster Bheric, Loremaster Sella), "
+                f"advisors ({advisor_names}), "
                 "then TACKLES THE DAY'S PROBLEMS — petitions and disputes, building and supply "
                 "decisions, the people's needs, threats at the borders, the realm's prosperity. Treat "
                 "the KINGDOM ledger above as real stakes and MOVE it with KINGDOM_CHANGE when the "
@@ -202,16 +220,16 @@ def build_scene_block(recent_turns: list[dict] | None = None) -> str:
                 "military, morale, stockpiles, anything under construction).\n"
                 "2. Each advisor gives a short REPORT on their own domain, then brings ONE concrete "
                 "PROPOSAL for it:\n"
-                "   • Warden Renn → defense, the watch, the walls, the army, border threats\n"
-                "   • Hearthkeeper Orina → food, health, morale, the commonfolk's needs, rations\n"
-                "   • Forgemaster Bheric → building, industry, the forge, construction, resources\n"
-                "   • Loremaster Sella → lore, omens, the deep past, ley/void threats, the EmberHeart\n"
+                f"{advisor_bullets}"
                 "   • Queen Talmarr → co-ruler; weighs in broadly, scouting, and the human cost\n"
                 "   Also surface noble proposals, public petitions/needs, and district/building upgrades.\n"
                 "3. The council may REACT to each other — agree, object, weigh the cost, debate.\n"
                 "4. END by laying the decisions before the King and STOPPING for KAELRATH (the player) "
                 "to give the FINAL RULING. Do NOT decide for him — present the choices in [SUGGESTIONS] "
-                "and wait. Apply the consequences of his rulings with KINGDOM_CHANGE / building tags.")
+                "and wait. Apply the consequences of his rulings with KINGDOM_CHANGE / building tags.\n"
+                "APPOINTMENTS: when the King raises someone to the council (or removes them), you MUST "
+                "declare it with COUNCIL_APPOINT: <name>, <portfolio> (or COUNCIL_DISMISS: <name>). The "
+                "advisor roster above is built from these tags — an appointment only sticks if tagged.")
 
     # STORY SO FAR — always injected so the thread is never lost, even past the
     # working-memory window. Latest consolidation summary + recent chronicle beats.

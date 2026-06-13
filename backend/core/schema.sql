@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS npcs (
     motivation   TEXT    NOT NULL DEFAULT '',
     disposition  TEXT    NOT NULL DEFAULT '{}',  -- {PC-01: 40, ...} toward each PC
     status       TEXT    NOT NULL DEFAULT 'alive',-- alive | dead | missing
+    council      TEXT    NOT NULL DEFAULT '',     -- portfolio if seated on the King's council; '' = not a councillor
     seed         INTEGER NOT NULL DEFAULT 0,      -- came from ingested corpus
     era          TEXT    NOT NULL DEFAULT 'present' -- 'present' | 'future_foreshadow'
 );
