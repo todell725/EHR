@@ -2,7 +2,27 @@
 from backend.core import state
 from backend.core.models import Mechanic
 from backend.dm import mechanics
+from backend.dm.orchestrator import _looks_truncated
 from backend.sim import factions
+
+
+# Truncation guard: a beat cut mid-word must be flagged for regeneration
+def test_truncation_guard_flags_midword_cut():
+    # the real failure: stream ended at "...listening from th"
+    assert _looks_truncated(
+        "The column is strung out, the anchor singing, but the void is listening from th") is True
+    # mid-clause comma is also a cut
+    assert _looks_truncated("Renn steps forward and the rangers close up around the cart,") is True
+
+
+def test_truncation_guard_accepts_finished_beats():
+    assert _looks_truncated("The pines rise ahead, dark against the glacier's shoulder.") is False
+    assert _looks_truncated('"Something matched the harmonic," she says, voice tight.') is False
+    assert _looks_truncated("The shadows between the trees have gone too still—") is False  # em-dash cliffhanger
+    assert _looks_truncated("*The violet shimmer threads through the lower branches.*") is False
+    # too-short is the garbled-guard's job, not the truncation guard's
+    assert _looks_truncated("###") is False
+    assert _looks_truncated("") is False
 
 
 def _hero():

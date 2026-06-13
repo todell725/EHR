@@ -138,6 +138,22 @@ def _timeout_for(model: str) -> float:
     return settings.narration_timeout if model in _warmed else settings.cold_start_timeout
 
 
+# Characters that legitimately END a finished beat: sentence punctuation, closing
+# quotes/brackets, an em-dash or italics cliffhanger. Anything else trailing — a bare
+# letter, a comma, a colon — means the stream was cut mid-thought, not closed.
+_TERMINAL_PUNCT = set('.!?…"\'“”‘’*)]}>—-')
+
+
+def _looks_truncated(text: str | None) -> bool:
+    """True if narration ends mid-thought — a cloud model can close the stream cleanly
+    (no error) yet stop mid-word, so _narrate's mid-stream recovery never fires. We catch
+    it here and regenerate. Too-short beats are the garbled-guard's job, not ours."""
+    t = (text or "").rstrip()
+    if len(t) < 20:
+        return False
+    return t[-1] not in _TERMINAL_PUNCT
+
+
 def mark_warm(model: str) -> None:
     if model:
         _warmed.add(model)
@@ -372,6 +388,34 @@ async def stream_turn(action: str, pc_id: str | None = None) -> AsyncIterator[di
                     parsed = repaired_parsed
             except Exception as exc:  # noqa: BLE001
                 logger.error("repair failed: %s", exc)
+
+        # Truncation guard: a cloud model can end the stream cleanly but mid-thought
+        # (stops mid-word), so no exception fires and _narrate's mid-stream recovery never
+        # triggers. Detect a beat that doesn't close on terminal punctuation and regenerate
+        # ONCE on the fallback. Only when the PRIMARY produced it — never loop on the fallback.
+        if (primary_active and fallback_model and fallback_model != narration_model
+                and _looks_truncated(parsed.narrative)):
+            logger.warning("narration truncated mid-thought (...%r); regenerating on %s",
+                           (parsed.narrative or "")[-30:], fallback_model)
+            yield {"type": "narrative_reset"}
+            yield {"type": "notice",
+                   "message": f"Beat cut short mid-stream — regenerating on {fallback_model}."}
+            used_model = fallback_model
+            full, shown = "", 0
+            try:
+                async for d in get_llm().stream_chat(
+                        messages, mode="narration", model=fallback_model):
+                    full += d
+                    vis, _ = parser.streaming_narrative(full)
+                    if len(vis) > shown:
+                        yield {"type": "token", "text": vis[shown:]}
+                        shown = len(vis)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("truncation-regeneration on %s failed: %s", fallback_model, exc)
+            vis, _ = parser.streaming_narrative(full)
+            if len(vis) > shown:
+                yield {"type": "token", "text": vis[shown:]}
+            parsed = parser.parse(full)
 
     # reactive content routing: if the primary model refused a mature beat, regenerate
     # on the uncensored model and swap in its narrative.
