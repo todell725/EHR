@@ -110,8 +110,13 @@ def _pc_and_item_args(args: list[str], pcs: list[dict]) -> tuple[dict | None, li
     PC if it actually names one; otherwise default to the hero and keep all args as the item
     (so 'ITEM_REMOVE: Wood, 500' isn't misread with 'Wood' as the character)."""
     first = (args[0] if args else "").strip().lower()
-    if first and any(first == p["name"].strip().lower() or first == p["id"].lower() for p in pcs):
-        return _find_pc(args[0], pcs), args[1:]
+    # match an exact name/id OR a first-name token ("Kaelrath" -> "Kaelrath Emberhide"), but NOT a
+    # mere substring (so an item like "Talmarr's gift" isn't misread as the character Talmarr).
+    if first:
+        for p in pcs:
+            nm = p["name"].strip().lower()
+            if first == nm or first == p["id"].lower() or first == nm.split()[0]:
+                return p, args[1:]
     return (pcs[0] if pcs else None), list(args)
 
 

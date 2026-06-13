@@ -64,3 +64,22 @@ def test_quest_complete_fuzzy_title(fresh_db):
     # DM paraphrases the title -> unique-substring match still closes it
     mechanics.apply_mechanics([Mechanic(tag="QUEST_COMPLETE", args=["Obsidian Spine"], raw="QUEST_COMPLETE: Obsidian Spine")])
     assert [x for x in state.list_quests() if x["title"] == "The Obsidian Spine"][0]["status"] == "completed"
+
+
+# ITEM_ADD with a first name ("Kaelrath" vs "Kaelrath Emberhide") must strip the PC, not bake it in
+def test_item_add_first_name_strips_pc(fresh_db):
+    state.upsert_pc({"id": "PC-1", "name": "Kaelrath Emberhide", "is_player": 1, "hp": 10, "max_hp": 10,
+                     "ac": 10, "inventory": []})
+    mechanics.apply_mechanics([Mechanic(tag="ITEM_ADD", args=["Kaelrath", "A Shiny Sword", "1"],
+                                        raw="ITEM_ADD: Kaelrath, A Shiny Sword, 1")])
+    inv = state.get_pc("PC-1")["inventory"]
+    assert inv == [{"item": "A Shiny Sword", "qty": 1}]   # not "Kaelrath, A Shiny Sword"
+
+
+def test_item_add_no_pc_keeps_full_name(fresh_db):
+    state.upsert_pc({"id": "PC-1", "name": "Kaelrath Emberhide", "is_player": 1, "hp": 10, "max_hp": 10,
+                     "ac": 10, "inventory": []})
+    # an item that merely contains a name must NOT be eaten as the PC
+    mechanics.apply_mechanics([Mechanic(tag="ITEM_ADD", args=["Talmarr's locket", "1"],
+                                        raw="ITEM_ADD: Talmarr's locket, 1")])
+    assert state.get_pc("PC-1")["inventory"] == [{"item": "Talmarr's locket", "qty": 1}]
