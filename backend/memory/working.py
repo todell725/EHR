@@ -121,12 +121,14 @@ def build_scene_block(recent_turns: list[dict] | None = None) -> str:
     present = state.list_npcs(location_id=loc_id) if loc_id else []
 
     loc_name = "an unknown place"
+    loc_desc = ""
     if loc_id:
         from backend.core import db
 
-        row = db.query_one("SELECT name FROM locations WHERE id = ?", [loc_id])
+        row = db.query_one("SELECT name, description FROM locations WHERE id = ?", [loc_id])
         if row:
             loc_name = row["name"]
+            loc_desc = (row["description"] or "").strip()
 
     lines = [
         "--- WORLD STATE ---",
@@ -134,7 +136,7 @@ def build_scene_block(recent_turns: list[dict] | None = None) -> str:
         f"{' (ruling a domain)' if world.get('domain_ruled') else ''}",
         f"Date: Year {world.get('year')}, {world.get('season')}, "
         f"day {world.get('day')} — {world.get('time_of_day')}; weather: {world.get('weather')}",
-        f"Location: {loc_name}",
+        f"Location: {loc_name}" + (f" — {loc_desc}" if loc_desc else ""),
     ]
     # The maintained "current scene" — the single most important anti-drift anchor.
     scene = (world.get("scene") or "").strip()
@@ -181,6 +183,18 @@ def build_scene_block(recent_turns: list[dict] | None = None) -> str:
                 f"treasury {dom.get('treasury')}, military {dom.get('military')}, "
                 f"morale {dom.get('morale')}/5" + (f"; stockpiles: {stock}" if stock else "")
                 + proj_str + ".")
+            # The city's actual buildings, by name — so the DM stages scenes in REAL structures
+            # (the Mender's Clinic, the Hearthkeeper's Lodge, the Hearth-Hall…) instead of inventing
+            # frontier-camp props like tents. EmberHeart is BUILT; this is the anti-"tent" fix.
+            built = dom.get("buildings") or []
+            if built:
+                cat = kingdom.all_buildings()
+                labels = [cat.get(k, {}).get("label", k) for k in built]
+                lines.append(
+                    f"EMBERHEART'S STANDING STRUCTURES (the capital is a BUILT stone-and-timber "
+                    f"hearth-city of ~{dom.get('population')} souls — it is NOT a camp; there are NO "
+                    f"tents, palisades, or frontier props anywhere in it. Stage every in-city scene "
+                    f"inside these real buildings): " + ", ".join(labels) + ".")
             crews = dom.get("crews") or []
             if crews:
                 crew_str = "; ".join(
